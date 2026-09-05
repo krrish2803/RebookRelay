@@ -34,6 +34,7 @@ const SENTIMENT_DATA = [
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<any>(null);
+  const [clinicName, setClinicName] = useState('your clinic');
   const [demoStep, setDemoStep] = useState(0);
   const [cascadeStatus, setCascadeStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [cascadeMsg, setCascadeMsg] = useState('');
@@ -42,6 +43,11 @@ export default function DashboardPage() {
     fetch('/api/dashboard/metrics')
       .then(res => res.json())
       .then(data => setMetrics(data.data));
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) setClinicName(data.data.clinicName);
+      });
   }, []);
 
   const handleTriggerCascade = async () => {
@@ -75,7 +81,7 @@ export default function DashboardPage() {
       <header className="flex justify-between items-end mb-10">
         <div>
           <h1 className="text-3xl font-black tracking-tight mb-2">Revenue Recovery</h1>
-          <p className="text-slate-400">Live AI cascade performance for Apex Dental.</p>
+          <p className="text-slate-400">Live AI cascade performance for {clinicName}.</p>
         </div>
         <div className="flex items-center gap-3">
           <a

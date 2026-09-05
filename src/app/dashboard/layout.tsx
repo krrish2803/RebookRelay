@@ -1,11 +1,12 @@
 'use client';
 
-import { Activity, TrendingUp, CalendarX2, PhoneCall, Users, Settings } from 'lucide-react';
+import { Activity, TrendingUp, CalendarX2, PhoneCall, Users, Settings, LogOut } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const navItems = [
     { name: 'Overview', href: '/dashboard', icon: TrendingUp },
@@ -14,6 +15,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Waitlist', href: '/dashboard/waitlist', icon: Users },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
+
+  const handleLogout = async () => {
+    document.cookie = 'session=; path=/; max-age=0';
+    router.push('/auth/login');
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 relative overflow-hidden flex">
@@ -30,7 +36,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <span className="font-bold text-xl tracking-tight">RebookRelay</span>
         </Link>
         
-        <nav className="space-y-2">
+        <nav className="space-y-2 flex-1">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             return (
@@ -48,6 +54,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             );
           })}
         </nav>
+
+        <button 
+          onClick={handleLogout}
+          className="flex items-center gap-3 font-medium px-4 py-3 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all mt-auto"
+        >
+          <LogOut className="w-5 h-5" /> Log Out
+        </button>
       </div>
 
       {/* Main Content Area */}
