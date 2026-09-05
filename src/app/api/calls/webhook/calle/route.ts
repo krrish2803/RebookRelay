@@ -22,16 +22,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: 'Duplicate event ignored' }, { status: 200 });
     }
 
-    const callId = callData.id;                         // e.g. "call_xyz"
-    const metadata = callData.metadata || {};           // We passed { case_id, call_sequence }
+    const callId = callData.id;
+    const metadata = callData.metadata || {};
     const caseId = metadata.case_id;
-    const status = callData.status;                     // "completed" | "failed"
+    const status = callData.status;
 
     if (!callId || !caseId) {
       return NextResponse.json({ error: 'Missing required call identifiers' }, { status: 400 });
     }
 
-    // Extract outcome from recipients (first recipient's summary or status)
+    // Verify the case_id belongs to a real RecoveryCase in our database.
+    // This prevents unbound webhook events from arbitrary sources.
+    const existingCase = await prisma.recoveryCase.findUnique({
+      where: { id: caseId },
+      select: { id: true }
+    });
+
+    if (!existingCase) {
+      return NextResponse.json({ error: 'Unknown case_id — webhook rejected' }, { status: 403 });
+    }
+
+    // Extract outcome from recipients
     const recipient = callData.recipients?.[0];
     const transcript = recipient?.summary || null;
     const outcome = callData.taskCompleted ? 'BOOKED' : (status === 'failed' ? 'ERROR' : 'DECLINED');
