@@ -3,42 +3,58 @@ import { getDb } from './mongodb';
 import { initiateRecoveryCall, buildAgentScript } from './calle';
 import { syncGoogleCalendarEvents } from './calendar-sync';
 import { ObjectId } from 'mongodb';
+import { WithId, Document } from 'mongodb';
 
 export const inngest = new Inngest({
   id: 'rebookrelay',
 });
+
+interface RecoveryCaseData {
+  _id: string;
+  clinicId: string;
+  calendarEventId: string;
+  originalClientName: string;
+  originalClientPhone: string;
+  originalServiceType: string;
+  originalServiceDurationMin: number;
+  cascadeStatus: string;
+  clinic: WithId<Document> | null;
+}
 
 export const cascadeWorkflow = inngest.createFunction(
   { id: 'recovery-cascade-workflow', triggers: [{ event: 'recovery.case.created' }] },
   async ({ event, step }) => {
     const { caseId } = event.data as { caseId: string };
 
-    const recoveryCase = await step.run('fetch-recovery-case', async () => {
+    const recoveryCase = await step.run<RecoveryCaseData>('fetch-recovery-case', async () => {
       const db = await getDb();
       const doc = await db.collection('recoveryCases').findOne({ _id: new ObjectId(caseId) });
-      if (!doc) return null;
+      if (!doc) return null as unknown as RecoveryCaseData;
       const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(doc.clinicId) });
-      return { ...doc, clinic, _id: doc._id.toString() };
+      return { ...doc, clinic, _id: doc._id.toString() } as unknown as RecoveryCaseData;
     });
 
     if (!recoveryCase) throw new Error(`Case ${caseId} not found`);
+    if (!recoveryCase.clinic) throw new Error(`Clinic not found for case ${caseId}`);
+
+    const clinic = recoveryCase.clinic;
 
     const call1Result = await step.run('initiate-call-1', async () => {
       const script = buildAgentScript(
-        recoveryCase.clinic.name,
+        clinic.name,
         recoveryCase.originalClientName,
         recoveryCase.originalServiceType,
         false
       );
 
-      if (!recoveryCase.clinic.phone) {
+      if (!clinic.phone) {
         throw new Error(`Clinic phone number is not configured for clinic ${recoveryCase.clinicId}`);
       }
 
       return await initiateRecoveryCall({
         to: recoveryCase.originalClientPhone,
-        from: recoveryCase.clinic.phone,
-        clinicName: recoveryCase.clinic.name,
+        from: clinic.phone,
+        clinicName: clinic.name,
         clientName: recoveryCase.originalClientName,
         agentScript: script,
         caseId: recoveryCase._id,
@@ -92,20 +108,20 @@ export const cascadeWorkflow = inngest.createFunction(
 
       const call2Result = await step.run('initiate-call-2-waitlist', async () => {
         const script = buildAgentScript(
-          recoveryCase.clinic.name,
+          clinic.name,
           waitlistPerson1.name,
           recoveryCase.originalServiceType,
           true
         );
 
-        if (!recoveryCase.clinic.phone) {
+        if (!clinic.phone) {
           throw new Error(`Clinic phone number is not configured for clinic ${recoveryCase.clinicId}`);
         }
 
         return await initiateRecoveryCall({
           to: waitlistPerson1.phone,
-          from: recoveryCase.clinic.phone,
-          clinicName: recoveryCase.clinic.name,
+          from: clinic.phone,
+          clinicName: clinic.name,
           clientName: waitlistPerson1.name,
           agentScript: script,
           caseId: recoveryCase._id,
@@ -138,7 +154,7 @@ export const cascadeWorkflow = inngest.createFunction(
               clinicId: recoveryCase.clinicId,
               serviceType: recoveryCase.originalServiceType,
               status: 'ACTIVE',
-              _id: { $ne: new ObjectId(waitlistPerson1._id) }
+              _id: { $ne: new ObjectId(waitlistPerson1._id.toString()) }
             },
             { sort: { priorityScore: -1 } }
           );
@@ -157,20 +173,20 @@ export const cascadeWorkflow = inngest.createFunction(
 
         const call3Result = await step.run('initiate-call-3-waitlist', async () => {
           const script = buildAgentScript(
-            recoveryCase.clinic.name,
+            clinic.name,
             waitlistPerson2.name,
             recoveryCase.originalServiceType,
             true
           );
 
-          if (!recoveryCase.clinic.phone) {
+          if (!clinic.phone) {
             throw new Error(`Clinic phone number is not configured for clinic ${recoveryCase.clinicId}`);
           }
 
           return await initiateRecoveryCall({
             to: waitlistPerson2.phone,
-            from: recoveryCase.clinic.phone,
-            clinicName: recoveryCase.clinic.name,
+            from: clinic.phone,
+            clinicName: clinic.name,
             clientName: waitlistPerson2.name,
             agentScript: script,
             caseId: recoveryCase._id,
@@ -215,7 +231,7 @@ export const automatedCalendarSync = inngest.createFunction(
       const db = await getDb();
       const tokens = await db.collection('oauthTokens').find({ provider: 'google_calendar' }).toArray();
       const clinicIds = [...new Set(tokens.map((t: any) => t.clinicId))];
-      const clinics = await db.collection('clinics').find({ id: { $in: clinicIds } }).toArray();
+      const clinics = await db.collection('clinics').find({ _id: { $in: clinicIds.map(id => new ObjectId(id)) } }).toArray();
       return clinics;
     });
 
@@ -226,7 +242,7 @@ export const automatedCalendarSync = inngest.createFunction(
     const totalNoShows = await step.run('sync-all-clinics', async () => {
       let count = 0;
       for (const clinic of clinicsToSync) {
-        const result = await syncGoogleCalendarEvents(clinic.id);
+        const result = await syncGoogleCalendarEvents(clinic._id.toString());
         count += result.noShowsDetected;
         console.log(`[CRON] Synced calendar for Clinic: ${clinic.name} — ${result.noShowsDetected} no-shows detected`);
       }

@@ -14,7 +14,20 @@ export async function GET(req: NextRequest) {
       .sort({ createdAt: -1 })
       .toArray();
 
-    const formatted = cases.map((c: any) => ({
+    const formatted: Array<{
+      id: string;
+      client: any;
+      phone: any;
+      service: any;
+      originalTime: any;
+      status: any;
+      finalOutcome: any;
+      currentCallDepth: any;
+      revenueRecovered: any;
+      callAttempts: Array<{ id: string; target: any; outcome: any; callSequence: any; initiatedAt: any; completedAt: any }>;
+      createdAt: any;
+      completedAt: any;
+    }> = cases.map((c: any) => ({
       id: c._id.toString(),
       client: c.originalClientName,
       phone: c.originalClientPhone,
@@ -24,7 +37,7 @@ export async function GET(req: NextRequest) {
       finalOutcome: c.finalOutcome,
       currentCallDepth: c.currentCallDepth,
       revenueRecovered: c.revenueRecovered,
-      callAttempts: [], // populated below
+      callAttempts: [],
       createdAt: c.createdAt,
       completedAt: c.completedAt,
     }));
