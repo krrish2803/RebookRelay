@@ -72,7 +72,7 @@ export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center justify-center pt-20 overflow-hidden bg-slate-950">
       {/* Premium 3D Background Element */}
-      <div className="absolute inset-0 z-0 cursor-pointer">
+      <div className="absolute inset-0 z-0 pointer-events-none">
         <Canvas camera={{ position: [0, 0, 8], fov: 45 }}>
           <ambientLight intensity={0.2} />
           <directionalLight position={[10, 10, 10]} intensity={1} />
@@ -85,7 +85,7 @@ export default function Hero() {
         </Canvas>
       </div>
 
-      <div className="relative z-10 max-w-5xl mx-auto px-6 text-center pointer-events-none">
+      <div className="relative z-50 max-w-5xl mx-auto px-6 text-center pointer-events-none">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
