@@ -10,7 +10,8 @@ import {
   Users, 
   CheckCircle2, 
   Clock,
-  Calendar
+  Calendar,
+  Loader2
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -34,13 +35,40 @@ const SENTIMENT_DATA = [
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<any>(null);
   const [demoStep, setDemoStep] = useState(0);
+  const [cascadeStatus, setCascadeStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [cascadeMsg, setCascadeMsg] = useState('');
 
   useEffect(() => {
-    // Fetch metrics from our new API
     fetch('/api/dashboard/metrics')
       .then(res => res.json())
       .then(data => setMetrics(data.data));
   }, []);
+
+  const handleTriggerCascade = async () => {
+    setCascadeStatus('loading');
+    setCascadeMsg('');
+    try {
+      const res = await fetch('/api/dashboard/trigger-cascade', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setCascadeStatus('success');
+        setCascadeMsg(data.message);
+        setDemoStep(0);
+        setTimeout(() => setDemoStep(1), 1000);
+        setTimeout(() => setDemoStep(2), 4000);
+        setTimeout(() => setDemoStep(3), 7000);
+        setTimeout(() => setDemoStep(4), 10000);
+      } else {
+        setCascadeStatus('error');
+        setCascadeMsg(data.error || 'Failed to trigger');
+      }
+    } catch {
+      setCascadeStatus('error');
+      setCascadeMsg('Network error');
+    } finally {
+      setTimeout(() => setCascadeStatus('idle'), 5000);
+    }
+  };
 
   return (
     <div>
@@ -160,27 +188,36 @@ export default function DashboardPage() {
           <div className="flex justify-between items-center mb-8">
             <div>
               <h3 className="text-xl font-bold flex items-center gap-2 text-indigo-400">
-                <Activity className="w-6 h-6" /> Live Cascade Orchestration (Demo)
+                <Activity className="w-6 h-6" /> Live Cascade Orchestration
               </h3>
-              <p className="text-slate-400 text-sm mt-1">Simulate the Inngest workflow and CALL-E webhook outcomes without burning real credits.</p>
+              <p className="text-slate-400 text-sm mt-1">Trigger a real no-show recovery cascade via Inngest + CALL-E.</p>
             </div>
             <button 
-              onClick={() => {
-                setDemoStep(0);
-                setTimeout(() => setDemoStep(1), 1000);
-                setTimeout(() => setDemoStep(2), 4000);
-                setTimeout(() => setDemoStep(3), 7000);
-                setTimeout(() => setDemoStep(4), 10000);
-              }}
-              className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_-5px_rgba(99,102,241,0.5)] flex items-center gap-2"
+              onClick={handleTriggerCascade}
+              disabled={cascadeStatus === 'loading'}
+              className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_-5px_rgba(99,102,241,0.5)] flex items-center gap-2 disabled:opacity-50"
             >
-              <PhoneCall className="w-4 h-4" /> Trigger "Test Cascade"
+              {cascadeStatus === 'loading' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Triggering...</>
+              ) : (
+                <><PhoneCall className="w-4 h-4" /> Trigger Recovery Cascade</>
+              )}
             </button>
           </div>
+
+          {cascadeMsg && (
+            <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${
+              cascadeStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+              cascadeStatus === 'error' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+              'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+            }`}>
+              {cascadeMsg}
+            </div>
+          )}
           
-          {demoStep === 0 && (
+          {demoStep === 0 && !cascadeMsg && (
             <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-800 rounded-2xl">
-              Click the button above to simulate a no-show detection and AI cascade.
+              Click the button above to trigger a real recovery cascade.
             </div>
           )}
 
