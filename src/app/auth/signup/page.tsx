@@ -13,19 +13,30 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  const [error, setError] = useState<string | null>(null);
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
+    setError(null);
+
     try {
-      await fetch('/api/auth/signup', {
+      const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clinicName, email, password })
       });
-      router.push('/dashboard');
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        router.push('/dashboard');
+      } else {
+        setError(data.error || 'Failed to create account');
+      }
     } catch (err) {
-      console.error(err);
+      setError('A network error occurred. Please try again.');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -49,6 +60,12 @@ export default function SignupPage() {
           <h1 className="text-3xl font-black text-white tracking-tight mb-2">Start your Free Trial</h1>
           <p className="text-slate-400">Join 50+ clinics recovering revenue today.</p>
         </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-sm font-medium text-center">
+            {error}
+          </div>
+        )}
 
         <form className="space-y-5" onSubmit={handleSignup}>
           <div className="space-y-2">

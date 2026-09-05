@@ -97,7 +97,7 @@ export default function CallLogsPage() {
                       <div className="text-xs text-slate-500">{formatTime(call.initiatedAt)}</div>
                     </td>
                     <td className="p-4 text-slate-300">{call.type}</td>
-                    <td className="p-4 text-slate-400">{formatDuration(call.callDurationSec)}</td>
+                    <td className="p-4 text-slate-400">{call.duration || '--'}</td>
                     <td className="p-4 text-slate-300">{getSentimentLabel(call.sentimentScore)}</td>
                     <td className="p-4">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${getOutcomeBadge(call.outcome)}`}>

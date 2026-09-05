@@ -56,7 +56,7 @@ export default function WaitlistPage() {
 
   const formatPrefs = (prefs: any) => {
     if (!prefs || !Array.isArray(prefs) || prefs.length === 0) return 'Anytime';
-    return prefs.map((p: any) => `${p.day_of_week || ''} ${p.start_hour || ''}-${p.end_hour || ''}`).join(', ');
+    return prefs.join(', ');
   };
 
   return (
