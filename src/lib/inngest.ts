@@ -26,13 +26,13 @@ export const cascadeWorkflow = inngest.createFunction(
   async ({ event, step }) => {
     const { caseId } = event.data as { caseId: string };
 
-    const recoveryCase = await step.run<RecoveryCaseData>('fetch-recovery-case', async () => {
+    const recoveryCase = await step.run('fetch-recovery-case', async () => {
       const db = await getDb();
       const doc = await db.collection('recoveryCases').findOne({ _id: new ObjectId(caseId) });
-      if (!doc) return null as unknown as RecoveryCaseData;
+      if (!doc) return null;
       const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(doc.clinicId) });
-      return { ...doc, clinic, _id: doc._id.toString() } as unknown as RecoveryCaseData;
-    });
+      return { ...doc, clinic, _id: doc._id.toString() };
+    }) as RecoveryCaseData | null;
 
     if (!recoveryCase) throw new Error(`Case ${caseId} not found`);
     if (!recoveryCase.clinic) throw new Error(`Clinic not found for case ${caseId}`);
