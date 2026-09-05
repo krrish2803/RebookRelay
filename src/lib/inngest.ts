@@ -11,9 +11,9 @@ export const inngest = new Inngest({
 
 // 2. Define the core Cascade Workflow
 export const cascadeWorkflow = inngest.createFunction(
-  { id: 'recovery-cascade-workflow', event: 'recovery.case.created' },
+  { id: 'recovery-cascade-workflow', triggers: [{ event: 'recovery.case.created' }] },
   async ({ event, step }) => {
-    const { caseId } = event.data;
+    const { caseId } = event.data as { caseId: string };
 
     // STEP 1: Fetch the case from the database
     const recoveryCase = await step.run('fetch-recovery-case', async () => {
@@ -50,7 +50,7 @@ export const cascadeWorkflow = inngest.createFunction(
     });
 
     if (!call1Result.success) {
-      throw new Error(`Call 1 Failed: ${call1Result.error}`);
+      throw new Error(`Call 1 Failed: ${(call1Result as { success: false; error: string }).error}`);
     }
 
     // STEP 3: Wait for the CALL-E Webhook to fire (max wait 10 minutes)
@@ -65,7 +65,7 @@ export const cascadeWorkflow = inngest.createFunction(
     });
 
     // STEP 4: Decision Logic
-    if (call1Outcome.data.outcome === 'BOOKED') {
+    if (call1Outcome?.data.outcome === 'BOOKED') {
       await step.run('mark-case-booked', async () => {
         await prisma.recoveryCase.update({
           where: { id: caseId },
@@ -76,7 +76,7 @@ export const cascadeWorkflow = inngest.createFunction(
     }
 
     // STEP 5: Cascade to Waitlist (If Original Client Declined or No Answer)
-    if (call1Outcome.data.outcome === 'DECLINED' || call1Outcome.data.outcome === 'NO_ANSWER') {
+    if (call1Outcome?.data.outcome === 'DECLINED' || call1Outcome?.data.outcome === 'NO_ANSWER') {
       
       // Find the #1 person on the waitlist
       const waitlistPerson1 = await step.run('get-next-waitlist-person', async () => {
@@ -222,7 +222,7 @@ export const cascadeWorkflow = inngest.createFunction(
 
 // 3. Automated CRON Job to Sync Calendars
 export const automatedCalendarSync = inngest.createFunction(
-  { id: "automated-calendar-sync", cron: "*/15 * * * *" },
+  { id: "automated-calendar-sync", triggers: [{ cron: "*/15 * * * *" }] },
   async ({ step }) => {
     
     // We fetch all clinics that have a connected Google Account
