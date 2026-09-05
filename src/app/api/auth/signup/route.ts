@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
-function hashPassword(password: string) {
-  return crypto.createHash('sha256').update(password).digest('hex');
-}
+const SALT_ROUNDS = 10;
 
 export async function POST(req: NextRequest) {
   try {
     const { clinicName, email, password } = await req.json();
 
-    // 1. Input Validation
     if (!clinicName || !email || !password) {
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
@@ -24,7 +21,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters long' }, { status: 400 });
     }
 
-    // 2. Duplicate User Check
     const existingStaff = await prisma.staff.findUnique({
       where: { email }
     });
@@ -33,33 +29,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
     }
 
-    // 3. Create the Clinic
     const clinic = await prisma.clinic.create({
       data: {
         name: clinicName,
-        businessType: 'clinic', // Fix missing businessType
-        timezone: 'America/New_York', // default
+        businessType: 'clinic',
+        timezone: 'America/New_York',
       }
     });
 
-    // 4. Create the Staff member (Owner)
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
     const staff = await prisma.staff.create({
       data: {
         clinicId: clinic.id,
         name: email.split('@')[0],
         email: email,
-        passwordHash: hashPassword(password), // Fixed: Hashed with SHA-256
-        role: 'admin' // Fixed casing to match schema
+        passwordHash,
+        role: 'admin'
       }
     });
 
-    // 5. Set cookie (Auto Login)
     const response = NextResponse.json({ success: true, clinicId: clinic.id });
     response.cookies.set('session', clinic.id, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: '/'
     });
 

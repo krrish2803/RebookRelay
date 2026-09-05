@@ -7,7 +7,7 @@ export function middleware(request: NextRequest) {
 
   // 1. Define public paths
   const isPublicAuthPage = pathname.startsWith('/auth/');
-  const isPublicApi = pathname.startsWith('/api/auth/') || pathname.startsWith('/api/calls/webhook/');
+  const isPublicApi = pathname.startsWith('/api/auth/') || pathname.startsWith('/api/calls/webhook/') || pathname.startsWith('/api/inngest');
   const isDashboardPage = pathname.startsWith('/dashboard');
   const isDashboardApi = pathname.startsWith('/api/') && !isPublicApi;
 

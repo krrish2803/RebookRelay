@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
+import crypto from 'crypto';
 
 export async function GET(request: NextRequest) {
   const clinicId = request.cookies.get('session')?.value;
@@ -14,14 +15,27 @@ export async function GET(request: NextRequest) {
   );
 
   const scopes = [
-    'https://www.googleapis.com/auth/calendar.readonly'
+    'https://www.googleapis.com/auth/calendar'
   ];
 
+  // Generate a random state token for CSRF protection
+  const state = crypto.randomBytes(32).toString('hex');
+
   const url = oauth2Client.generateAuthUrl({
-    access_type: 'offline', // Requests a refresh token
+    access_type: 'offline',
     scope: scopes,
-    prompt: 'consent' // Forces Google to provide a refresh token every time (useful for testing)
+    prompt: 'consent',
+    state
   });
 
-  return NextResponse.redirect(url);
+  const response = NextResponse.redirect(url);
+  response.cookies.set('oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 10, // 10 minutes
+    path: '/'
+  });
+
+  return response;
 }

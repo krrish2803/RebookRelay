@@ -1,6 +1,7 @@
 import { Inngest } from 'inngest';
 import prisma from './prisma';
 import { initiateRecoveryCall, buildAgentScript } from './calle';
+import { syncGoogleCalendarEvents } from './calendar-sync';
 
 // 1. Initialize Inngest Client
 export const inngest = new Inngest({
@@ -57,9 +58,9 @@ export const cascadeWorkflow = inngest.createFunction(
     const call1Outcome = await step.waitForEvent('call-1-completed', {
       event: 'call.completed',
       timeout: '10m',
-      match: 'data.calleCallId',
+      match: 'data.caseId',
       timeoutEvent: {
-        data: { outcome: 'NO_ANSWER' } // If CALL-E never calls back, assume no answer
+        data: { outcome: 'NO_ANSWER' }
       }
     });
 
@@ -127,7 +128,7 @@ export const cascadeWorkflow = inngest.createFunction(
       const call2Outcome = await step.waitForEvent('call-2-completed', {
         event: 'call.completed',
         timeout: '10m',
-        match: 'data.calleCallId',
+        match: 'data.caseId',
       });
 
       if (call2Outcome?.data.outcome === 'BOOKED') {
@@ -194,7 +195,7 @@ export const cascadeWorkflow = inngest.createFunction(
         const call3Outcome = await step.waitForEvent('call-3-completed', {
           event: 'call.completed',
           timeout: '10m',
-          match: 'data.calleCallId',
+          match: 'data.caseId',
         });
 
         if (call3Outcome?.data.outcome === 'BOOKED') {
@@ -238,13 +239,10 @@ export const automatedCalendarSync = inngest.createFunction(
 
     const totalNoShows = await step.run('sync-all-clinics', async () => {
       let count = 0;
-      // Loop through each clinic and trigger their sync
       for (const clinic of clinicsToSync) {
-        // In a real app, you'd call your actual Google API sync function here.
-        // E.g., await syncGoogleCalendarEvents(clinic.id);
-        
-        console.log(`[CRON] Automatically synced calendar for Clinic: ${clinic.name}`);
-        count += 1; // Simulated detected no show
+        const result = await syncGoogleCalendarEvents(clinic.id);
+        count += result.noShowsDetected;
+        console.log(`[CRON] Synced calendar for Clinic: ${clinic.name} — ${result.noShowsDetected} no-shows detected`);
       }
       return count;
     });

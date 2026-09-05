@@ -42,9 +42,15 @@ export default function NoShowsPage() {
     }
   ];
 
-  const handleSync = () => {
+  const handleSync = async () => {
     setIsSyncing(true);
-    setTimeout(() => setIsSyncing(false), 2000);
+    try {
+      await fetch('/api/calendar/sync', { method: 'POST' });
+    } catch (err) {
+      console.error('Calendar sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const getStatusBadge = (status: string) => {

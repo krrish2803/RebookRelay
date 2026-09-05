@@ -5,9 +5,16 @@ import prisma from '@/lib/prisma';
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
 
   if (!code) {
     return NextResponse.json({ error: 'No authorization code provided' }, { status: 400 });
+  }
+
+  // Verify OAuth state to prevent CSRF
+  const savedState = req.cookies.get('oauth_state')?.value;
+  if (!state || state !== savedState) {
+    return NextResponse.json({ error: 'Invalid OAuth state' }, { status: 403 });
   }
 
   try {
@@ -39,7 +46,7 @@ export async function GET(req: NextRequest) {
           expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : new Date(Date.now() + 3600 * 1000)
         },
         create: {
-          clinicId: firstClinic.id,
+          clinicId: clinic.id,
           provider: 'google_calendar',
           accessToken: tokens.access_token || '',
           refreshToken: tokens.refresh_token,
