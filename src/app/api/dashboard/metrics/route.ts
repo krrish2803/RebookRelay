@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     }
 
     const db = await getDb();
-    const clinic = await db.collection('clinics').findOne({ id: clinicId });
+    const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(clinicId) });
     if (!clinic) {
       return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
     }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import bcrypt from 'bcryptjs';
+import { ObjectId } from 'mongodb';
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function GET(req: NextRequest) {
     }
 
     const db = await getDb();
-    const clinic = await db.collection('clinics').findOne({ id: clinicId });
+    const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(clinicId) });
     const staff = await db.collection('staff').findOne({ clinicId });
 
     if (!clinic || !staff) {
@@ -45,7 +46,7 @@ export async function PUT(req: NextRequest) {
     const { clinicName, phone, email, currentPassword, newPassword } = body;
 
     const db = await getDb();
-    const clinic = await db.collection('clinics').findOne({ id: clinicId });
+    const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(clinicId) });
     const staff = await db.collection('staff').findOne({ clinicId });
 
     if (!clinic || !staff) {
@@ -53,11 +54,11 @@ export async function PUT(req: NextRequest) {
     }
 
     if (clinicName && clinicName !== clinic.name) {
-      await db.collection('clinics').updateOne({ id: clinicId }, { $set: { name: clinicName, updatedAt: new Date() } });
+      await db.collection('clinics').updateOne({ _id: new ObjectId(clinicId) }, { $set: { name: clinicName, updatedAt: new Date() } });
     }
 
     if (phone !== undefined && phone !== clinic.phone) {
-      await db.collection('clinics').updateOne({ id: clinicId }, { $set: { phone, updatedAt: new Date() } });
+      await db.collection('clinics').updateOne({ _id: new ObjectId(clinicId) }, { $set: { phone, updatedAt: new Date() } });
     }
 
     if (email && email !== staff.email) {
@@ -96,7 +97,7 @@ export async function DELETE(req: NextRequest) {
 
     const db = await getDb();
     await db.collection('staff').deleteMany({ clinicId });
-    await db.collection('clinics').deleteOne({ id: clinicId });
+    await db.collection('clinics').deleteOne({ _id: new ObjectId(clinicId) });
     await db.collection('calendarEvents').deleteMany({ clinicId });
     await db.collection('recoveryCases').deleteMany({ clinicId });
     await db.collection('waitlistPeople').deleteMany({ clinicId });

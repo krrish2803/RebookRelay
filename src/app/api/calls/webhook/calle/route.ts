@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import { inngest } from '@/lib/inngest';
+import { ObjectId } from 'mongodb';
 
 const processedEvents = new Set<string>();
 
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = await getDb();
-    const existingCase = await db.collection('recoveryCases').findOne({ _id: { $oid: caseId } });
+    const existingCase = await db.collection('recoveryCases').findOne({ _id: new ObjectId(caseId) });
     if (!existingCase) {
       return NextResponse.json({ error: 'Unknown case_id — webhook rejected' }, { status: 403 });
     }

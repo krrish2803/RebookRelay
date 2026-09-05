@@ -17,7 +17,7 @@ export const cascadeWorkflow = inngest.createFunction(
       const db = await getDb();
       const doc = await db.collection('recoveryCases').findOne({ _id: new ObjectId(caseId) });
       if (!doc) return null;
-      const clinic = await db.collection('clinics').findOne({ id: doc.clinicId });
+      const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(doc.clinicId) });
       return { ...doc, clinic, _id: doc._id.toString() };
     });
 

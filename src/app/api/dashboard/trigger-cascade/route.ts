@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import { inngest } from '@/lib/inngest';
+import { ObjectId } from 'mongodb';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,13 +11,9 @@ export async function POST(req: NextRequest) {
     }
 
     const db = await getDb();
-    const clinic = await db.collection('clinics').findOne({ _id: { $oid: clinicId } });
+    const clinic = await db.collection('clinics').findOne({ _id: new ObjectId(clinicId) });
     if (!clinic) {
-      // Try finding by string id
-      const clinicByString = await db.collection('clinics').findOne({ id: clinicId });
-      if (!clinicByString) {
-        return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
-      }
+      return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
     }
 
     const calendarEvent = await db.collection('calendarEvents')
