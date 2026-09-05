@@ -7,6 +7,7 @@ import { WithId, Document } from 'mongodb';
 
 export const inngest = new Inngest({
   id: 'rebookrelay',
+  isDev: process.env.NODE_ENV === 'development',
 });
 
 interface RecoveryCaseData {
