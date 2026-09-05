@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: NextRequest) {
@@ -10,22 +10,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    const staff = await prisma.staff.findUnique({
-      where: { email }
-    });
+    const db = await getDb();
+    const staff = await db.collection('staff').findOne({ email });
 
     if (!staff || !staff.passwordHash) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
     const passwordValid = await bcrypt.compare(password, staff.passwordHash);
-
     if (!passwordValid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
     const response = NextResponse.json({ success: true });
-
     response.cookies.set('session', staff.clinicId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

@@ -1,63 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 import { inngest } from '@/lib/inngest';
 
 export async function POST(req: NextRequest) {
   try {
     const clinicId = req.cookies.get('session')?.value;
-
     if (!clinicId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const clinic = await prisma.clinic.findUnique({ where: { id: clinicId } });
+    const db = await getDb();
+    const clinic = await db.collection('clinics').findOne({ _id: { $oid: clinicId } });
     if (!clinic) {
-      return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
+      // Try finding by string id
+      const clinicByString = await db.collection('clinics').findOne({ id: clinicId });
+      if (!clinicByString) {
+        return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
+      }
     }
 
-    const calendarEvent = await prisma.calendarEvent.findFirst({
-      where: { clinicId, status: 'confirmed' },
-      orderBy: { scheduledStart: 'desc' }
-    });
+    const calendarEvent = await db.collection('calendarEvents')
+      .findOne({ clinicId, status: 'confirmed' }, { sort: { scheduledStart: -1 } });
 
     if (!calendarEvent) {
       return NextResponse.json({ error: 'No confirmed calendar events found. Connect Google Calendar first.' }, { status: 400 });
     }
 
-    const existingCase = await prisma.recoveryCase.findFirst({
-      where: { clinicId, calendarEventId: calendarEvent.id }
-    });
-
+    const eventId = calendarEvent._id.toString();
+    const existingCase = await db.collection('recoveryCases').findOne({ calendarEventId: eventId });
     if (existingCase) {
       return NextResponse.json({ error: 'A recovery case already exists for this event' }, { status: 409 });
     }
 
-    const recoveryCase = await prisma.recoveryCase.create({
-      data: {
-        clinicId,
-        calendarEventId: calendarEvent.id,
-        originalClientId: 'test_client',
-        originalClientName: calendarEvent.clientName,
-        originalClientPhone: calendarEvent.clientPhone,
-        originalAppointmentStart: calendarEvent.scheduledStart,
-        originalServiceType: calendarEvent.serviceType,
-        originalServiceDurationMin: calendarEvent.durationMin,
-        availableSlots: [],
-        cascadeStatus: 'PENDING_CALL_1',
-        currentCallDepth: 0,
-        finalOutcome: 'PENDING',
-      }
+    const result = await db.collection('recoveryCases').insertOne({
+      clinicId,
+      calendarEventId: eventId,
+      originalClientId: 'test_client',
+      originalClientName: calendarEvent.clientName,
+      originalClientPhone: calendarEvent.clientPhone,
+      originalAppointmentStart: calendarEvent.scheduledStart,
+      originalServiceType: calendarEvent.serviceType,
+      originalServiceDurationMin: calendarEvent.durationMin,
+      availableSlots: [],
+      cascadeStatus: 'PENDING_CALL_1',
+      maxCascadeDepth: 3,
+      currentCallDepth: 0,
+      finalOutcome: 'PENDING',
+      bookedSlot: null,
+      revenueRecovered: null,
+      createdAt: new Date(),
+      completedAt: null,
+      updatedAt: new Date(),
     });
+
+    const caseId = result.insertedId.toString();
 
     await inngest.send({
       name: 'recovery.case.created',
-      data: { caseId: recoveryCase.id }
+      data: { caseId }
     });
 
     return NextResponse.json({
       success: true,
       message: 'Cascade triggered! The workflow will call the client shortly.',
-      data: { caseId: recoveryCase.id }
+      data: { caseId }
     });
   } catch (error: any) {
     console.error('Failed to trigger cascade:', error);

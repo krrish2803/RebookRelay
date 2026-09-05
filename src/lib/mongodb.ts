@@ -1,0 +1,25 @@
+import { MongoClient, Db } from 'mongodb';
+
+const uri = process.env.DATABASE_URL!;
+
+let client: MongoClient;
+let clientPromise: Promise<MongoClient>;
+
+if (process.env.NODE_ENV === 'development') {
+  const globalWithMongo = globalThis as typeof globalThis & { _mongoClientPromise?: Promise<MongoClient> };
+  if (!globalWithMongo._mongoClientPromise) {
+    client = new MongoClient(uri);
+    globalWithMongo._mongoClientPromise = client.connect();
+  }
+  clientPromise = globalWithMongo._mongoClientPromise;
+} else {
+  client = new MongoClient(uri);
+  clientPromise = client.connect();
+}
+
+export async function getDb(): Promise<Db> {
+  const client = await clientPromise;
+  return client.db('rebookrelay');
+}
+
+export default clientPromise;

@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 
 export async function GET(req: NextRequest) {
   try {
-    // Read the logged-in clinicId from the session cookie set during signup/login
     const clinicId = req.cookies.get('session')?.value;
 
     if (!clinicId) {
-      // Return mock data for the hackathon UI if session is missing
       return NextResponse.json({
         success: true,
         data: {
@@ -26,56 +24,41 @@ export async function GET(req: NextRequest) {
       }, { status: 200 });
     }
 
-    const clinic = await prisma.clinic.findUnique({
-      where: { id: clinicId }
-    });
-
+    const db = await getDb();
+    const clinic = await db.collection('clinics').findOne({ id: clinicId });
     if (!clinic) {
       return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
     }
 
-    // 1. Get total no-shows (RecoveryCases created)
-    const totalCases = await prisma.recoveryCase.count({
-      where: { clinicId }
+    const totalCases = await db.collection('recoveryCases').countDocuments({ clinicId });
+
+    const clinicCases = await db.collection('recoveryCases').find({ clinicId }).project({ _id: 1 }).toArray();
+    const caseIds = clinicCases.map((c: any) => c._id.toString());
+    const totalCalls = await db.collection('callAttempts').countDocuments({ recoveryCaseId: { $in: caseIds } });
+
+    const successfulRebookings = await db.collection('recoveryCases').countDocuments({
+      clinicId, cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED'
     });
 
-    // 2. Get total calls placed
-    const totalCalls = await prisma.callAttempt.count({
-      where: { recoveryCase: { clinicId } }
-    });
+    const bookedCases = await db.collection('recoveryCases')
+      .find({ clinicId, cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED' })
+      .project({ revenueRecovered: 1 })
+      .toArray();
+    const revenueRecovered = bookedCases.reduce((acc: number, curr: any) => acc + Number(curr.revenueRecovered || 0), 0);
 
-    // 3. Get successful rebookings
-    const successfulRebookings = await prisma.recoveryCase.count({
-      where: { clinicId, cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED' }
-    });
+    const recentCasesData = await db.collection('recoveryCases')
+      .find({ clinicId })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .project({ originalClientName: 1, cascadeStatus: 1, revenueRecovered: 1, createdAt: 1 })
+      .toArray();
 
-    // 4. Calculate total revenue recovered
-    const cases = await prisma.recoveryCase.findMany({
-      where: { clinicId, cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED' },
-      select: { revenueRecovered: true }
-    });
-    const revenueRecovered = cases.reduce((acc, curr) => acc + Number(curr.revenueRecovered || 0), 0);
-
-    // 5. Get recent live cases
-    const recentCasesData = await prisma.recoveryCase.findMany({
-      where: { clinicId },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      select: {
-        id: true,
-        originalClientName: true,
-        cascadeStatus: true,
-        revenueRecovered: true,
-        createdAt: true
-      }
-    });
-
-    const recentCases = recentCasesData.map(c => ({
-      id: c.id,
+    const recentCases = recentCasesData.map((c: any) => ({
+      id: c._id.toString(),
       client: c.originalClientName,
       status: c.cascadeStatus,
       amount: Number(c.revenueRecovered || 0),
-      time: 'Just now' // In prod, use date-fns formatDistanceToNow
+      time: 'Just now'
     }));
 
     return NextResponse.json({

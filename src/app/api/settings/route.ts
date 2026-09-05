@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 import bcrypt from 'bcryptjs';
 
 export async function GET(req: NextRequest) {
   try {
     const clinicId = req.cookies.get('session')?.value;
-
     if (!clinicId) {
       return NextResponse.json({ error: 'Unauthorized: Session missing' }, { status: 401 });
     }
 
-    const clinic = await prisma.clinic.findUnique({
-      where: { id: clinicId }
-    });
-
-    const staff = await prisma.staff.findFirst({
-      where: { clinicId }
-    });
+    const db = await getDb();
+    const clinic = await db.collection('clinics').findOne({ id: clinicId });
+    const staff = await db.collection('staff').findOne({ clinicId });
 
     if (!clinic || !staff) {
       return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
@@ -42,7 +37,6 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const clinicId = req.cookies.get('session')?.value;
-
     if (!clinicId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -50,27 +44,28 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const { clinicName, phone, email, currentPassword, newPassword } = body;
 
-    const clinic = await prisma.clinic.findUnique({ where: { id: clinicId } });
-    const staff = await prisma.staff.findFirst({ where: { clinicId } });
+    const db = await getDb();
+    const clinic = await db.collection('clinics').findOne({ id: clinicId });
+    const staff = await db.collection('staff').findOne({ clinicId });
 
     if (!clinic || !staff) {
       return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
     }
 
     if (clinicName && clinicName !== clinic.name) {
-      await prisma.clinic.update({ where: { id: clinicId }, data: { name: clinicName } });
+      await db.collection('clinics').updateOne({ id: clinicId }, { $set: { name: clinicName, updatedAt: new Date() } });
     }
 
     if (phone !== undefined && phone !== clinic.phone) {
-      await prisma.clinic.update({ where: { id: clinicId }, data: { phone } });
+      await db.collection('clinics').updateOne({ id: clinicId }, { $set: { phone, updatedAt: new Date() } });
     }
 
     if (email && email !== staff.email) {
-      const existing = await prisma.staff.findUnique({ where: { email } });
-      if (existing && existing.id !== staff.id) {
+      const existing = await db.collection('staff').findOne({ email });
+      if (existing && existing._id.toString() !== staff._id.toString()) {
         return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
       }
-      await prisma.staff.update({ where: { id: staff.id }, data: { email } });
+      await db.collection('staff').updateOne({ clinicId }, { $set: { email, updatedAt: new Date() } });
     }
 
     if (newPassword && currentPassword) {
@@ -82,7 +77,7 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'Current password is incorrect' }, { status: 400 });
       }
       const hash = await bcrypt.hash(newPassword, 10);
-      await prisma.staff.update({ where: { id: staff.id }, data: { passwordHash: hash } });
+      await db.collection('staff').updateOne({ clinicId }, { $set: { passwordHash: hash, updatedAt: new Date() } });
     }
 
     return NextResponse.json({ success: true, message: 'Settings updated' });
@@ -95,13 +90,17 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const clinicId = req.cookies.get('session')?.value;
-
     if (!clinicId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await prisma.staff.deleteMany({ where: { clinicId } });
-    await prisma.clinic.delete({ where: { id: clinicId } });
+    const db = await getDb();
+    await db.collection('staff').deleteMany({ clinicId });
+    await db.collection('clinics').deleteOne({ id: clinicId });
+    await db.collection('calendarEvents').deleteMany({ clinicId });
+    await db.collection('recoveryCases').deleteMany({ clinicId });
+    await db.collection('waitlistPeople').deleteMany({ clinicId });
+    await db.collection('oauthTokens').deleteMany({ clinicId });
 
     const response = NextResponse.json({ success: true, message: 'Account deleted' });
     response.cookies.set('session', '', { maxAge: 0, path: '/' });

@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 import { inngest } from '@/lib/inngest';
 
-// Idempotency: track processed event IDs to avoid duplicate processing
 const processedEvents = new Set<string>();
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // CALL-E WebhookEvent schema: { id, type, created_at, data: CallTask }
     const eventId = body.id;
     const callData = body.data;
 
@@ -17,7 +15,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing call data' }, { status: 400 });
     }
 
-    // Idempotency: skip if we already processed this event
     if (eventId && processedEvents.has(eventId)) {
       return NextResponse.json({ success: true, message: 'Duplicate event ignored' }, { status: 200 });
     }
@@ -31,43 +28,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required call identifiers' }, { status: 400 });
     }
 
-    // Verify the case_id belongs to a real RecoveryCase in our database.
-    // This prevents unbound webhook events from arbitrary sources.
-    const existingCase = await prisma.recoveryCase.findUnique({
-      where: { id: caseId },
-      select: { id: true }
-    });
-
+    const db = await getDb();
+    const existingCase = await db.collection('recoveryCases').findOne({ _id: { $oid: caseId } });
     if (!existingCase) {
       return NextResponse.json({ error: 'Unknown case_id — webhook rejected' }, { status: 403 });
     }
 
-    // Extract outcome from recipients
     const recipient = callData.recipients?.[0];
     const transcript = recipient?.summary || null;
     const outcome = callData.taskCompleted ? 'BOOKED' : (status === 'failed' ? 'ERROR' : 'DECLINED');
 
-    // 1. Update the CallAttempt log in the database
-    await prisma.callAttempt.update({
-      where: { calleCallId: callId },
-      data: {
-        outcome,
-        transcript,
-        completedAt: new Date(),
-      }
-    });
+    await db.collection('callAttempts').updateOne(
+      { calleCallId: callId },
+      { $set: { outcome, transcript, completedAt: new Date() } }
+    );
 
-    // 2. Wake up the Inngest Orchestrator
     await inngest.send({
       name: 'call.completed',
-      data: {
-        calleCallId: callId,
-        caseId: caseId,
-        outcome: outcome,
-      }
+      data: { calleCallId: callId, caseId, outcome }
     });
 
-    // 3. Mark event as processed for idempotency
     if (eventId) processedEvents.add(eventId);
 
     console.log(`Webhook received: Call ${callId} resulted in ${outcome}. Inngest notified.`);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 import bcrypt from 'bcryptjs';
+import { ObjectId } from 'mongodb';
 
 const SALT_ROUNDS = 10;
 
@@ -21,36 +22,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters long' }, { status: 400 });
     }
 
-    const existingStaff = await prisma.staff.findUnique({
-      where: { email }
-    });
+    const db = await getDb();
 
+    const existingStaff = await db.collection('staff').findOne({ email });
     if (existingStaff) {
       return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
     }
 
-    const clinic = await prisma.clinic.create({
-      data: {
-        name: clinicName,
-        businessType: 'clinic',
-        timezone: 'America/New_York',
-      }
+    const clinicResult = await db.collection('clinics').insertOne({
+      name: clinicName,
+      businessType: 'clinic',
+      timezone: 'America/New_York',
+      phone: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
+    const clinicId = clinicResult.insertedId.toString();
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    const staff = await prisma.staff.create({
-      data: {
-        clinicId: clinic.id,
-        name: email.split('@')[0],
-        email: email,
-        passwordHash,
-        role: 'admin'
-      }
+    await db.collection('staff').insertOne({
+      clinicId,
+      name: email.split('@')[0],
+      email,
+      passwordHash,
+      role: 'admin',
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
-    const response = NextResponse.json({ success: true, clinicId: clinic.id });
-    response.cookies.set('session', clinic.id, {
+    const response = NextResponse.json({ success: true, clinicId });
+    response.cookies.set('session', clinicId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

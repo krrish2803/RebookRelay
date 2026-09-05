@@ -1,31 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 
 export async function GET(req: NextRequest) {
   try {
     const clinicId = req.cookies.get('session')?.value;
-
     if (!clinicId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const calls = await prisma.callAttempt.findMany({
-      where: {
-        recoveryCase: { clinicId }
-      },
-      include: {
-        recoveryCase: {
-          select: {
-            originalClientName: true,
-            originalServiceType: true,
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const db = await getDb();
 
-    const formatted = calls.map(call => ({
-      id: call.id,
+    const calls = await db.collection('callAttempts')
+      .find({ recoveryCaseId: { $exists: true } })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    // Filter to only calls belonging to this clinic's recovery cases
+    const clinicCases = await db.collection('recoveryCases')
+      .find({ clinicId })
+      .project({ _id: 1 })
+      .toArray();
+    const caseIds = new Set(clinicCases.map((c: any) => c._id.toString()));
+
+    const clinicCalls = calls.filter((c: any) => caseIds.has(c.recoveryCaseId));
+
+    const formatted = clinicCalls.map((call: any) => ({
+      id: call._id.toString(),
       client: call.targetPersonName,
       phone: call.targetPersonPhone,
       type: call.callSequence === 1 ? 'Original Client Recovery' : `Waitlist Offer (#${call.callSequence})`,
@@ -39,7 +39,6 @@ export async function GET(req: NextRequest) {
       initiatedAt: call.initiatedAt,
       completedAt: call.completedAt,
       calleCallId: call.calleCallId,
-      serviceType: call.recoveryCase.originalServiceType,
     }));
 
     return NextResponse.json({ success: true, data: formatted });

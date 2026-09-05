@@ -1,41 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/mongodb';
 
 export async function GET(req: NextRequest) {
   try {
     const clinicId = req.cookies.get('session')?.value;
-
     if (!clinicId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const cases = await prisma.recoveryCase.findMany({
-      where: { clinicId },
-      include: {
-        calendarEvent: {
-          select: {
-            serviceType: true,
-            scheduledStart: true,
-            scheduledEnd: true,
-          }
-        },
-        callAttempts: {
-          select: {
-            id: true,
-            targetPersonName: true,
-            outcome: true,
-            callSequence: true,
-            initiatedAt: true,
-            completedAt: true,
-          },
-          orderBy: { callSequence: 'asc' }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const db = await getDb();
+    const cases = await db.collection('recoveryCases')
+      .find({ clinicId })
+      .sort({ createdAt: -1 })
+      .toArray();
 
-    const formatted = cases.map(c => ({
-      id: c.id,
+    const formatted = cases.map((c: any) => ({
+      id: c._id.toString(),
       client: c.originalClientName,
       phone: c.originalClientPhone,
       service: c.originalServiceType,
@@ -43,24 +23,33 @@ export async function GET(req: NextRequest) {
       status: c.cascadeStatus,
       finalOutcome: c.finalOutcome,
       currentCallDepth: c.currentCallDepth,
-      revenueRecovered: c.revenueRecovered ? Number(c.revenueRecovered) : null,
-      callAttempts: c.callAttempts.map(a => ({
-        id: a.id,
+      revenueRecovered: c.revenueRecovered,
+      callAttempts: [], // populated below
+      createdAt: c.createdAt,
+      completedAt: c.completedAt,
+    }));
+
+    // Fetch call attempts for each case
+    for (const c of formatted) {
+      const calls = await db.collection('callAttempts')
+        .find({ recoveryCaseId: c.id })
+        .sort({ callSequence: 1 })
+        .toArray();
+      c.callAttempts = calls.map((a: any) => ({
+        id: a._id.toString(),
         target: a.targetPersonName,
         outcome: a.outcome,
         callSequence: a.callSequence,
         initiatedAt: a.initiatedAt,
         completedAt: a.completedAt,
-      })),
-      createdAt: c.createdAt,
-      completedAt: c.completedAt,
-    }));
+      }));
+    }
 
     const stats = {
       total: cases.length,
-      recovered: cases.filter(c => c.finalOutcome === 'BOOKED').length,
-      inProgress: cases.filter(c => !c.completedAt).length,
-      failed: cases.filter(c => c.finalOutcome === 'NOT_BOOKED').length,
+      recovered: cases.filter((c: any) => c.finalOutcome === 'BOOKED').length,
+      inProgress: cases.filter((c: any) => !c.completedAt).length,
+      failed: cases.filter((c: any) => c.finalOutcome === 'NOT_BOOKED').length,
     };
 
     return NextResponse.json({ success: true, data: { cases: formatted, stats } });

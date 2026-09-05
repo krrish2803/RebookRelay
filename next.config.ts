@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pg", "@prisma/adapter-pg"],
+  serverExternalPackages: ["mongodb"],
 };
 
 export default nextConfig;
