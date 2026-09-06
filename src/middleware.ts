@@ -7,7 +7,8 @@ export function middleware(request: NextRequest) {
 
   // 1. Define public paths
   const isPublicAuthPage = pathname.startsWith('/auth/');
-  const isPublicApi = pathname.startsWith('/api/auth/') || pathname.startsWith('/api/calls/webhook/') || pathname.startsWith('/api/sms/webhook') || pathname.startsWith('/api/inngest');
+  const isPublicConfirmPage = pathname.startsWith('/confirm/');
+  const isPublicApi = pathname.startsWith('/api/auth/') || pathname.startsWith('/api/calls/webhook/') || pathname.startsWith('/api/sms/webhook') || pathname.startsWith('/api/confirm') || pathname.startsWith('/api/inngest');
   const isDashboardPage = pathname.startsWith('/dashboard');
   const isDashboardApi = pathname.startsWith('/api/') && !isPublicApi;
 
@@ -38,7 +39,7 @@ export function middleware(request: NextRequest) {
   // 3. Auth Guard
   const sessionToken = request.cookies.get('session')?.value;
 
-  if (isDashboardPage && !sessionToken) {
+  if (isDashboardPage && !isPublicConfirmPage && !sessionToken) {
     // Redirect to login if trying to access dashboard pages without a session
     const loginUrl = new URL('/auth/login', request.url);
     return NextResponse.redirect(loginUrl);

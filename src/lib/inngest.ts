@@ -1,6 +1,6 @@
 import { Inngest } from 'inngest';
 import { getDb } from './mongodb';
-import { initiateRecoveryCall, buildAgentScript } from './calle';
+import { initiateRecoveryCall, buildAgentScript, sendVoiceConfirmation } from './calle';
 import { syncGoogleCalendarEvents, bookCalendarEvent } from './calendar-sync';
 import { sendSms, buildRecoverySms, logSmsAttempt } from './sms';
 import { ObjectId } from 'mongodb';
@@ -149,7 +149,21 @@ export const cascadeWorkflow = inngest.createFunction(
         );
       });
 
-      return { status: 'success', message: 'Original client rebooked via SMS reply' };
+      const slot1 = recoveryCase.availableSlots?.[0];
+      await step.run('voice-confirm-sms-original', async () => {
+        return await sendVoiceConfirmation({
+          caseId,
+          clinicId: recoveryCase.clinicId,
+          clientName: recoveryCase.originalClientName,
+          clientPhone: recoveryCase.originalClientPhone,
+          serviceType: recoveryCase.originalServiceType,
+          slotTime: new Date(slot1?.start_time || new Date()),
+          clinicName: clinic.name,
+          clinicPhone: clinic.phone || '',
+        });
+      });
+
+      return { status: 'success', message: 'Original client rebooked via SMS reply + voice confirmation sent' };
     }
 
     // Step 3: Call original client (SMS didn't work)
@@ -208,7 +222,21 @@ export const cascadeWorkflow = inngest.createFunction(
         );
       });
 
-      return { status: 'success', message: 'Original client rebooked via call' };
+      const slot1call = recoveryCase.availableSlots?.[0];
+      await step.run('voice-confirm-call-original', async () => {
+        return await sendVoiceConfirmation({
+          caseId,
+          clinicId: recoveryCase.clinicId,
+          clientName: recoveryCase.originalClientName,
+          clientPhone: recoveryCase.originalClientPhone,
+          serviceType: recoveryCase.originalServiceType,
+          slotTime: new Date(slot1call?.start_time || new Date()),
+          clinicName: clinic.name,
+          clinicPhone: clinic.phone || '',
+        });
+      });
+
+      return { status: 'success', message: 'Original client rebooked via call + voice confirmation sent' };
     }
 
     // ========== ROUND 2: Waitlist Person #1 ==========
@@ -294,7 +322,21 @@ export const cascadeWorkflow = inngest.createFunction(
           );
         });
 
-        return { status: 'success', message: 'Waitlist client 1 booked via SMS reply' };
+        const slotWs1 = recoveryCase.availableSlots?.[0];
+        await step.run('voice-confirm-sms-waitlist-1', async () => {
+          return await sendVoiceConfirmation({
+            caseId,
+            clinicId: recoveryCase.clinicId,
+            clientName: waitlistPerson1.name,
+            clientPhone: waitlistPerson1.phone,
+            serviceType: recoveryCase.originalServiceType,
+            slotTime: new Date(slotWs1?.start_time || new Date()),
+            clinicName: clinic.name,
+            clinicPhone: clinic.phone || '',
+          });
+        });
+
+        return { status: 'success', message: 'Waitlist client 1 booked via SMS reply + voice confirmation sent' };
       }
 
       // Call waitlist person #1
@@ -346,7 +388,21 @@ export const cascadeWorkflow = inngest.createFunction(
           );
         });
 
-        return { status: 'success', message: 'Waitlist client 1 booked via call' };
+        const slotWc1 = recoveryCase.availableSlots?.[0];
+        await step.run('voice-confirm-call-waitlist-1', async () => {
+          return await sendVoiceConfirmation({
+            caseId,
+            clinicId: recoveryCase.clinicId,
+            clientName: waitlistPerson1.name,
+            clientPhone: waitlistPerson1.phone,
+            serviceType: recoveryCase.originalServiceType,
+            slotTime: new Date(slotWc1?.start_time || new Date()),
+            clinicName: clinic.name,
+            clinicPhone: clinic.phone || '',
+          });
+        });
+
+        return { status: 'success', message: 'Waitlist client 1 booked via call + voice confirmation sent' };
       }
 
       // ========== ROUND 3: Waitlist Person #2 ==========
@@ -437,7 +493,21 @@ export const cascadeWorkflow = inngest.createFunction(
             );
           });
 
-          return { status: 'success', message: 'Waitlist client 2 booked via SMS reply' };
+          const slotWs2 = recoveryCase.availableSlots?.[0];
+          await step.run('voice-confirm-sms-waitlist-2', async () => {
+            return await sendVoiceConfirmation({
+              caseId,
+              clinicId: recoveryCase.clinicId,
+              clientName: waitlistPerson2.name,
+              clientPhone: waitlistPerson2.phone,
+              serviceType: recoveryCase.originalServiceType,
+              slotTime: new Date(slotWs2?.start_time || new Date()),
+              clinicName: clinic.name,
+              clinicPhone: clinic.phone || '',
+            });
+          });
+
+          return { status: 'success', message: 'Waitlist client 2 booked via SMS reply + voice confirmation sent' };
         }
 
         // Call waitlist person #2
@@ -489,7 +559,21 @@ export const cascadeWorkflow = inngest.createFunction(
             );
           });
 
-          return { status: 'success', message: 'Waitlist client 2 booked via call' };
+          const slotWc2 = recoveryCase.availableSlots?.[0];
+          await step.run('voice-confirm-call-waitlist-2', async () => {
+            return await sendVoiceConfirmation({
+              caseId,
+              clinicId: recoveryCase.clinicId,
+              clientName: waitlistPerson2.name,
+              clientPhone: waitlistPerson2.phone,
+              serviceType: recoveryCase.originalServiceType,
+              slotTime: new Date(slotWc2?.start_time || new Date()),
+              clinicName: clinic.name,
+              clinicPhone: clinic.phone || '',
+            });
+          });
+
+          return { status: 'success', message: 'Waitlist client 2 booked via call + voice confirmation sent' };
         } else {
           await step.run('mark-case-failed-cascade', async () => {
             const db = await getDb();
