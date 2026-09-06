@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const [demoStep, setDemoStep] = useState(0);
   const [cascadeStatus, setCascadeStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [cascadeMsg, setCascadeMsg] = useState('');
+  const [calendarConnected, setCalendarConnected] = useState(false);
 
   useEffect(() => {
     fetch('/api/dashboard/metrics')
@@ -47,6 +48,11 @@ export default function DashboardPage() {
       .then(res => res.json())
       .then(data => {
         if (data.success) setClinicName(data.data.clinicName);
+      });
+    fetch('/api/dashboard/calendar-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.connected) setCalendarConnected(true);
       });
   }, []);
 
@@ -84,12 +90,18 @@ export default function DashboardPage() {
           <p className="text-slate-400">Live AI cascade performance for {clinicName}.</p>
         </div>
         <div className="flex items-center gap-3">
-          <a
-            href="/api/auth/google-calendar-oauth"
-            className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-all flex items-center gap-2 border border-slate-700"
-          >
-            <Calendar className="w-4 h-4" /> Connect Google Calendar
-          </a>
+          {calendarConnected ? (
+            <span className="bg-emerald-500/10 text-emerald-400 text-sm font-medium px-4 py-2 rounded-xl flex items-center gap-2 border border-emerald-500/20">
+              <Calendar className="w-4 h-4" /> Google Calendar Connected
+            </span>
+          ) : (
+            <a
+              href="/api/auth/google-calendar-oauth"
+              className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition-all flex items-center gap-2 border border-slate-700"
+            >
+              <Calendar className="w-4 h-4" /> Connect Google Calendar
+            </a>
+          )}
           <span className="flex h-3 w-3 relative">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
