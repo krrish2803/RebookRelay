@@ -59,7 +59,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(new URL('/dashboard?calendar_connected=true', req.url));
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebookrelay.onrender.com';
+    return NextResponse.redirect(new URL('/dashboard?calendar_connected=true', appUrl));
   } catch (error) {
     console.error('Error exchanging Google OAuth code:', error);
     return NextResponse.json({ error: 'Failed to connect Google Calendar' }, { status: 500 });
