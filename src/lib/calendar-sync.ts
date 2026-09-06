@@ -1,32 +1,80 @@
 import { getDb } from './mongodb';
 import { google } from 'googleapis';
 import { inngest } from './inngest';
+import { ObjectId } from 'mongodb';
 
-export async function syncGoogleCalendarEvents(clinicId: string) {
-  console.log(`Starting calendar sync for clinic: ${clinicId}`);
-
-  const db = await getDb();
-  const oauthToken = await db.collection('oauthTokens').findOne({ clinicId, provider: 'google_calendar' });
-
-  if (!oauthToken) {
-    console.log(`No Google Calendar connection found for clinic: ${clinicId}`);
-    return { syncedCount: 0, noShowsDetected: 0, cascadesInitiated: 0 };
-  }
-
-  const oauth2Client = new google.auth.OAuth2(
+function getOAuth2Client() {
+  return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI
   );
+}
 
+async function getCalendarClient(clinicId: string) {
+  const db = await getDb();
+  const oauth = await db.collection('oauthTokens').findOne({ clinicId, provider: 'google_calendar' });
+  if (!oauth) return null;
+
+  const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: oauthToken.accessToken,
-    refresh_token: oauthToken.refreshToken,
-    expiry_date: oauthToken.expiresAt.getTime()
+    access_token: oauth.accessToken,
+    refresh_token: oauth.refreshToken,
+    expiry_date: oauth.expiresAt.getTime()
   });
 
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  return google.calendar({ version: 'v3', auth: oauth2Client });
+}
 
+export async function bookCalendarEvent(params: {
+  clinicId: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  serviceType: string;
+  startTime: Date;
+  endTime: Date;
+}) {
+  const calendar = await getCalendarClient(params.clinicId);
+  if (!calendar) {
+    return { success: false, error: 'Google Calendar not connected' };
+  }
+
+  try {
+    const event = await calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: {
+        summary: `${params.clientName} - ${params.serviceType}`,
+        description: `Client: ${params.clientName}\nPhone: ${params.clientPhone}\nEmail: ${params.clientEmail}\n\nBooked via RebookRelay AI Recovery.`,
+        start: {
+          dateTime: params.startTime.toISOString(),
+          timeZone: 'America/New_York',
+        },
+        end: {
+          dateTime: params.endTime.toISOString(),
+          timeZone: 'America/New_York',
+        },
+      },
+    });
+
+    console.log(`[BOOKED] Calendar event created: ${event.data.id} for ${params.clientName}`);
+    return { success: true, eventId: event.data.id };
+  } catch (error: any) {
+    console.error('Failed to create calendar event:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function syncGoogleCalendarEvents(clinicId: string) {
+  console.log(`Starting calendar sync for clinic: ${clinicId}`);
+
+  const calendar = await getCalendarClient(clinicId);
+  if (!calendar) {
+    console.log(`No Google Calendar connection found for clinic: ${clinicId}`);
+    return { syncedCount: 0, noShowsDetected: 0, cascadesInitiated: 0 };
+  }
+
+  const db = await getDb();
   let noShowsDetected = 0;
   let cascadesInitiated = 0;
   let syncedCount = 0;

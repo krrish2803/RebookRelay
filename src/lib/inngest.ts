@@ -1,7 +1,7 @@
 import { Inngest } from 'inngest';
 import { getDb } from './mongodb';
 import { initiateRecoveryCall, buildAgentScript } from './calle';
-import { syncGoogleCalendarEvents } from './calendar-sync';
+import { syncGoogleCalendarEvents, bookCalendarEvent } from './calendar-sync';
 import { ObjectId } from 'mongodb';
 import { WithId, Document } from 'mongodb';
 
@@ -84,7 +84,22 @@ export const cascadeWorkflow = inngest.createFunction(
           { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED', updatedAt: new Date() } }
         );
       });
-      return { status: 'success', message: 'Original client rebooked' };
+
+      await step.run('book-calendar-event', async () => {
+        const slot = recoveryCase.availableSlots?.[0];
+        if (!slot) return { booked: false };
+        return await bookCalendarEvent({
+          clinicId: recoveryCase.clinicId,
+          clientName: recoveryCase.originalClientName,
+          clientEmail: 'client@rebookrelay.com',
+          clientPhone: recoveryCase.originalClientPhone,
+          serviceType: recoveryCase.originalServiceType,
+          startTime: new Date(slot.start_time),
+          endTime: new Date(slot.end_time),
+        });
+      });
+
+      return { status: 'success', message: 'Original client rebooked + calendar updated' };
     }
 
     if (call1Outcome?.data.outcome === 'DECLINED' || call1Outcome?.data.outcome === 'NO_ANSWER') {
@@ -144,7 +159,22 @@ export const cascadeWorkflow = inngest.createFunction(
             { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED', updatedAt: new Date() } }
           );
         });
-        return { status: 'success', message: 'Waitlist client booked' };
+
+        await step.run('book-calendar-event-waitlist', async () => {
+          const slot = recoveryCase.availableSlots?.[0];
+          if (!slot) return { booked: false };
+          return await bookCalendarEvent({
+            clinicId: recoveryCase.clinicId,
+            clientName: waitlistPerson1.name,
+            clientEmail: waitlistPerson1.email,
+            clientPhone: waitlistPerson1.phone,
+            serviceType: recoveryCase.originalServiceType,
+            startTime: new Date(slot.start_time),
+            endTime: new Date(slot.end_time),
+          });
+        });
+
+        return { status: 'success', message: 'Waitlist client booked + calendar updated' };
       }
 
       if (!call2Outcome || call2Outcome.data.outcome === 'DECLINED' || call2Outcome.data.outcome === 'NO_ANSWER') {
@@ -209,7 +239,22 @@ export const cascadeWorkflow = inngest.createFunction(
               { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED', updatedAt: new Date() } }
             );
           });
-          return { status: 'success', message: 'Waitlist client 2 booked' };
+
+          await step.run('book-calendar-event-waitlist-2', async () => {
+            const slot = recoveryCase.availableSlots?.[0];
+            if (!slot) return { booked: false };
+            return await bookCalendarEvent({
+              clinicId: recoveryCase.clinicId,
+              clientName: waitlistPerson2.name,
+              clientEmail: waitlistPerson2.email,
+              clientPhone: waitlistPerson2.phone,
+              serviceType: recoveryCase.originalServiceType,
+              startTime: new Date(slot.start_time),
+              endTime: new Date(slot.end_time),
+            });
+          });
+
+          return { status: 'success', message: 'Waitlist client 2 booked + calendar updated' };
         } else {
           await step.run('mark-case-failed-cascade', async () => {
             const db = await getDb();
