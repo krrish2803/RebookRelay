@@ -2,11 +2,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/mongodb';
 import { inngest } from '@/lib/inngest';
 import { ObjectId } from 'mongodb';
+import crypto from 'crypto';
 
 const processedEvents = new Set<string>();
 
+// Webhook authentication: verify CALL-E webhook secret token
+function verifyWebhookAuth(req: NextRequest): boolean {
+  const secret = process.env.CALLE_WEBHOOK_SECRET;
+  if (!secret) {
+    // No secret configured — reject in production, allow in dev for testing
+    if (process.env.NODE_ENV === 'production') {
+      console.error('CALLE_WEBHOOK_SECRET not set — rejecting webhook in production');
+      return false;
+    }
+    return true;
+  }
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader) return false;
+  const token = authHeader.replace('Bearer ', '');
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(secret));
+}
+
 export async function POST(req: NextRequest) {
   try {
+    // Authenticate webhook
+    if (!verifyWebhookAuth(req)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
 
     const eventId = body.id;

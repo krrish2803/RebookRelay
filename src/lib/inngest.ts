@@ -194,14 +194,24 @@ export const cascadeWorkflow = inngest.createFunction(
       throw new Error(`Call 1 Failed: ${(call1Result as { success: false; error: string }).error}`);
     }
 
+    // Wait for call outcome — NO timeoutEvent: on timeout we STOP the cascade (don't advance)
     const call1Outcome = await step.waitForEvent('call-1-completed', {
       event: 'call.completed',
       timeout: '10m',
       match: 'data.caseId',
-      timeoutEvent: {
-        data: { outcome: 'NO_ANSWER' }
-      }
     });
+
+    // If no event received (timeout), stop cascade — do not advance to next person
+    if (!call1Outcome) {
+      await step.run('mark-case-timeout-1', async () => {
+        const db = await getDb();
+        await db.collection('recoveryCases').updateOne(
+          { _id: new ObjectId(caseId) },
+          { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'TIMEOUT', notes: 'Call 1 timed out after 10 minutes — cascade stopped', updatedAt: new Date() } }
+        );
+      });
+      return { status: 'ended', message: 'Call 1 timed out — cascade stopped, no further calls attempted' };
+    }
 
     if (call1Outcome?.data.outcome === 'BOOKED') {
       await step.run('mark-case-booked', async () => {
@@ -390,6 +400,18 @@ export const cascadeWorkflow = inngest.createFunction(
         timeout: '10m',
         match: 'data.caseId',
       });
+
+      // If no event received (timeout), stop cascade
+      if (!call2Outcome) {
+        await step.run('mark-case-timeout-2', async () => {
+          const db = await getDb();
+          await db.collection('recoveryCases').updateOne(
+            { _id: new ObjectId(caseId) },
+            { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'TIMEOUT', notes: 'Call 2 timed out after 10 minutes — cascade stopped', updatedAt: new Date() } }
+          );
+        });
+        return { status: 'ended', message: 'Call 2 timed out — cascade stopped, no further calls attempted' };
+      }
 
       if (call2Outcome?.data.outcome === 'BOOKED') {
         await step.run('mark-case-booked-waitlist', async () => {
@@ -583,6 +605,18 @@ export const cascadeWorkflow = inngest.createFunction(
           timeout: '10m',
           match: 'data.caseId',
         });
+
+        // If no event received (timeout), stop cascade
+        if (!call3Outcome) {
+          await step.run('mark-case-timeout-3', async () => {
+            const db = await getDb();
+            await db.collection('recoveryCases').updateOne(
+              { _id: new ObjectId(caseId) },
+              { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'TIMEOUT', notes: 'Call 3 timed out after 10 minutes — cascade stopped', updatedAt: new Date() } }
+            );
+          });
+          return { status: 'ended', message: 'Call 3 timed out — cascade stopped' };
+        }
 
         if (call3Outcome?.data.outcome === 'BOOKED') {
           await step.run('mark-case-booked-waitlist-2', async () => {

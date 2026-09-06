@@ -6,7 +6,22 @@ export const calle = new CalleClient({
   apiKey: process.env.CALL_E_API_KEY || 'MISSING_API_KEY'
 });
 
-const DRY_RUN = process.env.CALL_E_DRY_RUN === 'true';
+// DRY_RUN defaults to true when env var is absent or unset — live mode requires explicit opt-in
+const DRY_RUN = process.env.CALL_E_DRY_RUN !== 'false';
+
+// Webhook secret for validating incoming CALL-E webhooks
+export const CALLE_WEBHOOK_SECRET = process.env.CALLE_WEBHOOK_SECRET || '';
+
+/**
+ * Check if a destination phone number is pre-approved for real calls.
+ * Returns true if DRY_RUN is active (always safe) or if the number is in approvedDestinations.
+ */
+export async function isDestinationApproved(phone: string): Promise<boolean> {
+  if (DRY_RUN) return true;
+  const db = await getDb();
+  const approved = await db.collection('approvedDestinations').findOne({ phone, status: 'ACTIVE' });
+  return !!approved;
+}
 
 export interface CallInitiationParams {
   to: string;
@@ -37,6 +52,12 @@ export async function initiateRecoveryCall(params: CallInitiationParams) {
       callId = `dryrun_${Date.now()}`;
       console.log(`[DRY_RUN] Would call ${params.to} (${params.clientName}) — script: ${params.agentScript.substring(0, 80)}...`);
     } else {
+      // Safety: verify destination is approved before placing real call
+      const approved = await isDestinationApproved(params.to);
+      if (!approved) {
+        throw new Error(`Destination ${params.to} is not in approvedDestinations. Add it before making real calls.`);
+      }
+
       const response = await calle.calls.create({
         task: params.agentScript,
         recipient: { phone: params.to },
