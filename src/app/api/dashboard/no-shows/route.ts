@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
       finalOutcome: any;
       currentCallDepth: any;
       revenueRecovered: any;
+      calendarEventLink: any;
       callAttempts: Array<{ id: string; target: any; outcome: any; callSequence: any; initiatedAt: any; completedAt: any }>;
       createdAt: any;
       completedAt: any;
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
       finalOutcome: c.finalOutcome,
       currentCallDepth: c.currentCallDepth,
       revenueRecovered: c.revenueRecovered,
+      calendarEventLink: c.calendarEventLink || null,
       callAttempts: [],
       createdAt: c.createdAt,
       completedAt: c.completedAt,

@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { CalendarX2, RefreshCw, AlertCircle, Clock, CheckCircle2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { CalendarX2, RefreshCw, AlertCircle, Clock, CheckCircle2, ChevronDown, ChevronUp, Loader2, ExternalLink } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 export default function NoShowsPage() {
@@ -132,12 +132,25 @@ export default function NoShowsPage() {
                       {c.revenueRecovered ? `$${c.revenueRecovered}` : '--'}
                     </td>
                     <td className="p-4 text-right">
-                      <button 
-                        onClick={() => setExpandedCase(expandedCase === c.id ? null : c.id)}
-                        className="p-2 rounded-lg bg-slate-800/0 hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-all"
-                      >
-                        {expandedCase === c.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                      </button>
+                      {c.calendarEventLink ? (
+                        <a 
+                          href={c.calendarEventLink} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          title="View in Google Calendar"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View Calendar
+                        </a>
+                      ) : (
+                        <button 
+                          onClick={() => setExpandedCase(expandedCase === c.id ? null : c.id)}
+                          className="p-2 rounded-lg bg-slate-800/0 hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-all"
+                        >
+                          {expandedCase === c.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                        </button>
+                      )}
                     </td>
                   </motion.tr>
                 ))}
@@ -146,6 +159,21 @@ export default function NoShowsPage() {
 
             {cases.map((c) => expandedCase === c.id && (
               <motion.div key={`detail-${c.id}`} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="border-t border-slate-800/50 bg-slate-950/30 p-6">
+                {c.calendarEventLink && (
+                  <div className="mb-4 p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                    <p className="text-sm font-bold text-emerald-400 mb-1">Appointment Booked</p>
+                    <p className="text-xs text-slate-400 mb-2">This no-show has been recovered and a calendar event was created.</p>
+                    <a 
+                      href={c.calendarEventLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      View in Google Calendar
+                    </a>
+                  </div>
+                )}
                 <h4 className="font-bold text-sm mb-3 text-slate-300">Call History</h4>
                 {c.callAttempts.length === 0 ? (
                   <p className="text-slate-500 text-sm">No calls made yet.</p>

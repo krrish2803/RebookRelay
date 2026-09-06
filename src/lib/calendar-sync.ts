@@ -58,7 +58,7 @@ export async function bookCalendarEvent(params: {
     });
 
     console.log(`[BOOKED] Calendar event created: ${event.data.id} for ${params.clientName}`);
-    return { success: true, eventId: event.data.id };
+    return { success: true, eventId: event.data.id, htmlLink: event.data.htmlLink || null };
   } catch (error: any) {
     console.error('Failed to create calendar event:', error.message);
     return { success: false, error: error.message };

@@ -85,7 +85,7 @@ export const cascadeWorkflow = inngest.createFunction(
         );
       });
 
-      await step.run('book-calendar-event', async () => {
+      const bookResult1 = await step.run('book-calendar-event', async () => {
         const slot = recoveryCase.availableSlots?.[0];
         if (!slot) return { booked: false };
         return await bookCalendarEvent({
@@ -98,6 +98,16 @@ export const cascadeWorkflow = inngest.createFunction(
           endTime: new Date(slot.end_time),
         });
       });
+
+      if (bookResult1.success && bookResult1.htmlLink) {
+        await step.run('save-calendar-link', async () => {
+          const db = await getDb();
+          await db.collection('recoveryCases').updateOne(
+            { _id: new ObjectId(caseId) },
+            { $set: { calendarEventLink: bookResult1.htmlLink } }
+          );
+        });
+      }
 
       return { status: 'success', message: 'Original client rebooked + calendar updated' };
     }
@@ -160,7 +170,7 @@ export const cascadeWorkflow = inngest.createFunction(
           );
         });
 
-        await step.run('book-calendar-event-waitlist', async () => {
+        const bookResult2 = await step.run('book-calendar-event-waitlist', async () => {
           const slot = recoveryCase.availableSlots?.[0];
           if (!slot) return { booked: false };
           return await bookCalendarEvent({
@@ -173,6 +183,16 @@ export const cascadeWorkflow = inngest.createFunction(
             endTime: new Date(slot.end_time),
           });
         });
+
+        if (bookResult2.success && bookResult2.htmlLink) {
+          await step.run('save-calendar-link-waitlist', async () => {
+            const db = await getDb();
+            await db.collection('recoveryCases').updateOne(
+              { _id: new ObjectId(caseId) },
+              { $set: { calendarEventLink: bookResult2.htmlLink } }
+            );
+          });
+        }
 
         return { status: 'success', message: 'Waitlist client booked + calendar updated' };
       }
@@ -240,7 +260,7 @@ export const cascadeWorkflow = inngest.createFunction(
             );
           });
 
-          await step.run('book-calendar-event-waitlist-2', async () => {
+          const bookResult3 = await step.run('book-calendar-event-waitlist-2', async () => {
             const slot = recoveryCase.availableSlots?.[0];
             if (!slot) return { booked: false };
             return await bookCalendarEvent({
@@ -253,6 +273,16 @@ export const cascadeWorkflow = inngest.createFunction(
               endTime: new Date(slot.end_time),
             });
           });
+
+          if (bookResult3.success && bookResult3.htmlLink) {
+            await step.run('save-calendar-link-waitlist-2', async () => {
+              const db = await getDb();
+              await db.collection('recoveryCases').updateOne(
+                { _id: new ObjectId(caseId) },
+                { $set: { calendarEventLink: bookResult3.htmlLink } }
+              );
+            });
+          }
 
           return { status: 'success', message: 'Waitlist client 2 booked + calendar updated' };
         } else {
