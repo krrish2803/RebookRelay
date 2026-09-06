@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, TrendingUp, CalendarX2, PhoneCall, Users, Settings, LogOut } from 'lucide-react';
+import { Activity, TrendingUp, CalendarX2, PhoneCall, Users, Settings, LogOut, Calendar, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
@@ -11,7 +11,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { name: 'Overview', href: '/dashboard', icon: TrendingUp },
     { name: 'No-Shows', href: '/dashboard/no-shows', icon: CalendarX2 },
+    { name: 'Calendar', href: '/dashboard/calendar', icon: Calendar },
     { name: 'Call Logs', href: '/dashboard/calls', icon: PhoneCall },
+    { name: 'SMS Logs', href: '/dashboard/sms-logs', icon: MessageSquare },
     { name: 'Waitlist', href: '/dashboard/waitlist', icon: Users },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];

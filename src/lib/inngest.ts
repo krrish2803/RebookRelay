@@ -2,6 +2,7 @@ import { Inngest } from 'inngest';
 import { getDb } from './mongodb';
 import { initiateRecoveryCall, buildAgentScript } from './calle';
 import { syncGoogleCalendarEvents, bookCalendarEvent } from './calendar-sync';
+import { sendSms, buildRecoverySms, logSmsAttempt } from './sms';
 import { ObjectId } from 'mongodb';
 import { WithId, Document } from 'mongodb';
 
@@ -19,7 +20,50 @@ interface RecoveryCaseData {
   originalServiceType: string;
   originalServiceDurationMin: number;
   cascadeStatus: string;
+  availableSlots: Array<{ start_time: string; end_time: string; service_duration: number }>;
   clinic: WithId<Document> | null;
+}
+
+async function checkSmsReply(db: any, caseId: string, phone: string): Promise<string | null> {
+  const sms = await db.collection('smsAttempts').findOne({
+    recoveryCaseId: caseId,
+    targetPersonPhone: phone,
+    outcome: { $in: ['REPLIED_YES', 'REPLIED_NO'] },
+  });
+  return sms?.outcome || null;
+}
+
+async function bookAndLinkCalendar(
+  db: any,
+  caseId: string,
+  clinicId: string,
+  clientName: string,
+  clientEmail: string,
+  clientPhone: string,
+  serviceType: string,
+  availableSlots: Array<{ start_time: string; end_time: string }>
+) {
+  const slot = availableSlots?.[0];
+  if (!slot) return { booked: false };
+
+  const result = await bookCalendarEvent({
+    clinicId,
+    clientName,
+    clientEmail,
+    clientPhone,
+    serviceType,
+    startTime: new Date(slot.start_time),
+    endTime: new Date(slot.end_time),
+  });
+
+  if (result.success && result.htmlLink) {
+    await db.collection('recoveryCases').updateOne(
+      { _id: new ObjectId(caseId) },
+      { $set: { calendarEventLink: result.htmlLink } }
+    );
+  }
+
+  return result;
 }
 
 export const cascadeWorkflow = inngest.createFunction(
@@ -39,7 +83,76 @@ export const cascadeWorkflow = inngest.createFunction(
     if (!recoveryCase.clinic) throw new Error(`Clinic not found for case ${caseId}`);
 
     const clinic = recoveryCase.clinic;
+    const slot = recoveryCase.availableSlots?.[0];
+    const slotTime = slot ? new Date(slot.start_time).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'later today';
 
+    // ========== ROUND 1: Original Client ==========
+
+    // Step 1: Send SMS to original client
+    const sms1Result = await step.run('send-sms-original-client', async () => {
+      const smsBody = buildRecoverySms(
+        clinic.name,
+        recoveryCase.originalClientName,
+        recoveryCase.originalServiceType,
+        slotTime,
+        false
+      );
+      const result = await sendSms({
+        to: recoveryCase.originalClientPhone,
+        body: smsBody,
+        caseId: recoveryCase._id,
+        clinicId: recoveryCase.clinicId,
+      });
+
+      if (result.success) {
+        await logSmsAttempt({
+          caseId: recoveryCase._id,
+          callSequence: 1,
+          targetPersonName: recoveryCase.originalClientName,
+          targetPersonPhone: recoveryCase.originalClientPhone,
+          smsId: result.smsId || 'unknown',
+          outcome: 'DELIVERED',
+          messageBody: smsBody,
+        });
+      }
+
+      return result;
+    });
+
+    // Step 2: Wait for SMS reply (poll every 30s for 5 minutes = 10 attempts)
+    const sms1Reply = await step.run('wait-for-sms-reply-1', async () => {
+      const db = await getDb();
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 30000));
+        const reply = await checkSmsReply(db, caseId, recoveryCase.originalClientPhone);
+        if (reply) return reply;
+      }
+      return null;
+    });
+
+    if (sms1Reply === 'REPLIED_YES') {
+      await step.run('mark-case-booked-sms', async () => {
+        const db = await getDb();
+        await db.collection('recoveryCases').updateOne(
+          { _id: new ObjectId(caseId) },
+          { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED', updatedAt: new Date() } }
+        );
+      });
+
+      const bookResult = await step.run('book-calendar-sms', async () => {
+        const db = await getDb();
+        return await bookAndLinkCalendar(
+          db, caseId, recoveryCase.clinicId,
+          recoveryCase.originalClientName, 'client@rebookrelay.com',
+          recoveryCase.originalClientPhone, recoveryCase.originalServiceType,
+          recoveryCase.availableSlots
+        );
+      });
+
+      return { status: 'success', message: 'Original client rebooked via SMS reply' };
+    }
+
+    // Step 3: Call original client (SMS didn't work)
     const call1Result = await step.run('initiate-call-1', async () => {
       const script = buildAgentScript(
         clinic.name,
@@ -86,31 +199,19 @@ export const cascadeWorkflow = inngest.createFunction(
       });
 
       const bookResult1 = await step.run('book-calendar-event', async () => {
-        const slot = recoveryCase.availableSlots?.[0];
-        if (!slot) return { booked: false };
-        return await bookCalendarEvent({
-          clinicId: recoveryCase.clinicId,
-          clientName: recoveryCase.originalClientName,
-          clientEmail: 'client@rebookrelay.com',
-          clientPhone: recoveryCase.originalClientPhone,
-          serviceType: recoveryCase.originalServiceType,
-          startTime: new Date(slot.start_time),
-          endTime: new Date(slot.end_time),
-        });
+        const db = await getDb();
+        return await bookAndLinkCalendar(
+          db, caseId, recoveryCase.clinicId,
+          recoveryCase.originalClientName, 'client@rebookrelay.com',
+          recoveryCase.originalClientPhone, recoveryCase.originalServiceType,
+          recoveryCase.availableSlots
+        );
       });
 
-      if (bookResult1.success && bookResult1.htmlLink) {
-        await step.run('save-calendar-link', async () => {
-          const db = await getDb();
-          await db.collection('recoveryCases').updateOne(
-            { _id: new ObjectId(caseId) },
-            { $set: { calendarEventLink: bookResult1.htmlLink } }
-          );
-        });
-      }
-
-      return { status: 'success', message: 'Original client rebooked + calendar updated' };
+      return { status: 'success', message: 'Original client rebooked via call' };
     }
+
+    // ========== ROUND 2: Waitlist Person #1 ==========
 
     if (call1Outcome?.data.outcome === 'DECLINED' || call1Outcome?.data.outcome === 'NO_ANSWER') {
       const waitlistPerson1 = await step.run('get-next-waitlist-person', async () => {
@@ -132,6 +233,71 @@ export const cascadeWorkflow = inngest.createFunction(
         return { status: 'ended', message: 'No one on waitlist available' };
       }
 
+      // SMS to waitlist person #1
+      const sms2Result = await step.run('send-sms-waitlist-1', async () => {
+        const smsBody = buildRecoverySms(
+          clinic.name,
+          waitlistPerson1.name,
+          recoveryCase.originalServiceType,
+          slotTime,
+          true
+        );
+        const result = await sendSms({
+          to: waitlistPerson1.phone,
+          body: smsBody,
+          caseId: recoveryCase._id,
+          clinicId: recoveryCase.clinicId,
+        });
+
+        if (result.success) {
+          await logSmsAttempt({
+            caseId: recoveryCase._id,
+            callSequence: 2,
+            targetPersonName: waitlistPerson1.name,
+            targetPersonPhone: waitlistPerson1.phone,
+            smsId: result.smsId || 'unknown',
+            outcome: 'DELIVERED',
+            messageBody: smsBody,
+          });
+        }
+
+        return result;
+      });
+
+      // Wait for SMS reply
+      const sms2Reply = await step.run('wait-for-sms-reply-2', async () => {
+        const db = await getDb();
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 30000));
+          const reply = await checkSmsReply(db, caseId, waitlistPerson1.phone);
+          if (reply) return reply;
+        }
+        return null;
+      });
+
+      if (sms2Reply === 'REPLIED_YES') {
+        await step.run('mark-case-booked-waitlist-sms', async () => {
+          const db = await getDb();
+          await db.collection('recoveryCases').updateOne(
+            { _id: new ObjectId(caseId) },
+            { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED', updatedAt: new Date() } }
+          );
+        });
+
+        await step.run('book-calendar-waitlist-sms', async () => {
+          const db = await getDb();
+          return await bookAndLinkCalendar(
+            db, caseId, recoveryCase.clinicId,
+            waitlistPerson1.name, waitlistPerson1.email,
+            waitlistPerson1.phone, recoveryCase.originalServiceType,
+            recoveryCase.availableSlots
+          );
+        });
+
+        return { status: 'success', message: 'Waitlist client 1 booked via SMS reply' };
+      }
+
+      // Call waitlist person #1
       const call2Result = await step.run('initiate-call-2-waitlist', async () => {
         const script = buildAgentScript(
           clinic.name,
@@ -171,31 +337,19 @@ export const cascadeWorkflow = inngest.createFunction(
         });
 
         const bookResult2 = await step.run('book-calendar-event-waitlist', async () => {
-          const slot = recoveryCase.availableSlots?.[0];
-          if (!slot) return { booked: false };
-          return await bookCalendarEvent({
-            clinicId: recoveryCase.clinicId,
-            clientName: waitlistPerson1.name,
-            clientEmail: waitlistPerson1.email,
-            clientPhone: waitlistPerson1.phone,
-            serviceType: recoveryCase.originalServiceType,
-            startTime: new Date(slot.start_time),
-            endTime: new Date(slot.end_time),
-          });
+          const db = await getDb();
+          return await bookAndLinkCalendar(
+            db, caseId, recoveryCase.clinicId,
+            waitlistPerson1.name, waitlistPerson1.email,
+            waitlistPerson1.phone, recoveryCase.originalServiceType,
+            recoveryCase.availableSlots
+          );
         });
 
-        if (bookResult2.success && bookResult2.htmlLink) {
-          await step.run('save-calendar-link-waitlist', async () => {
-            const db = await getDb();
-            await db.collection('recoveryCases').updateOne(
-              { _id: new ObjectId(caseId) },
-              { $set: { calendarEventLink: bookResult2.htmlLink } }
-            );
-          });
-        }
-
-        return { status: 'success', message: 'Waitlist client booked + calendar updated' };
+        return { status: 'success', message: 'Waitlist client 1 booked via call' };
       }
+
+      // ========== ROUND 3: Waitlist Person #2 ==========
 
       if (!call2Outcome || call2Outcome.data.outcome === 'DECLINED' || call2Outcome.data.outcome === 'NO_ANSWER') {
         const waitlistPerson2 = await step.run('get-second-waitlist-person', async () => {
@@ -222,6 +376,71 @@ export const cascadeWorkflow = inngest.createFunction(
           return { status: 'ended', message: 'No one else on waitlist available' };
         }
 
+        // SMS to waitlist person #2
+        const sms3Result = await step.run('send-sms-waitlist-2', async () => {
+          const smsBody = buildRecoverySms(
+            clinic.name,
+            waitlistPerson2.name,
+            recoveryCase.originalServiceType,
+            slotTime,
+            true
+          );
+          const result = await sendSms({
+            to: waitlistPerson2.phone,
+            body: smsBody,
+            caseId: recoveryCase._id,
+            clinicId: recoveryCase.clinicId,
+          });
+
+          if (result.success) {
+            await logSmsAttempt({
+              caseId: recoveryCase._id,
+              callSequence: 3,
+              targetPersonName: waitlistPerson2.name,
+              targetPersonPhone: waitlistPerson2.phone,
+              smsId: result.smsId || 'unknown',
+              outcome: 'DELIVERED',
+              messageBody: smsBody,
+            });
+          }
+
+          return result;
+        });
+
+        // Wait for SMS reply
+        const sms3Reply = await step.run('wait-for-sms-reply-3', async () => {
+          const db = await getDb();
+          for (let i = 0; i < 10; i++) {
+            await new Promise(r => setTimeout(r, 30000));
+            const reply = await checkSmsReply(db, caseId, waitlistPerson2.phone);
+            if (reply) return reply;
+          }
+          return null;
+        });
+
+        if (sms3Reply === 'REPLIED_YES') {
+          await step.run('mark-case-booked-waitlist-2-sms', async () => {
+            const db = await getDb();
+            await db.collection('recoveryCases').updateOne(
+              { _id: new ObjectId(caseId) },
+              { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'BOOKED', updatedAt: new Date() } }
+            );
+          });
+
+          await step.run('book-calendar-waitlist-2-sms', async () => {
+            const db = await getDb();
+            return await bookAndLinkCalendar(
+              db, caseId, recoveryCase.clinicId,
+              waitlistPerson2.name, waitlistPerson2.email,
+              waitlistPerson2.phone, recoveryCase.originalServiceType,
+              recoveryCase.availableSlots
+            );
+          });
+
+          return { status: 'success', message: 'Waitlist client 2 booked via SMS reply' };
+        }
+
+        // Call waitlist person #2
         const call3Result = await step.run('initiate-call-3-waitlist', async () => {
           const script = buildAgentScript(
             clinic.name,
@@ -261,30 +480,16 @@ export const cascadeWorkflow = inngest.createFunction(
           });
 
           const bookResult3 = await step.run('book-calendar-event-waitlist-2', async () => {
-            const slot = recoveryCase.availableSlots?.[0];
-            if (!slot) return { booked: false };
-            return await bookCalendarEvent({
-              clinicId: recoveryCase.clinicId,
-              clientName: waitlistPerson2.name,
-              clientEmail: waitlistPerson2.email,
-              clientPhone: waitlistPerson2.phone,
-              serviceType: recoveryCase.originalServiceType,
-              startTime: new Date(slot.start_time),
-              endTime: new Date(slot.end_time),
-            });
+            const db = await getDb();
+            return await bookAndLinkCalendar(
+              db, caseId, recoveryCase.clinicId,
+              waitlistPerson2.name, waitlistPerson2.email,
+              waitlistPerson2.phone, recoveryCase.originalServiceType,
+              recoveryCase.availableSlots
+            );
           });
 
-          if (bookResult3.success && bookResult3.htmlLink) {
-            await step.run('save-calendar-link-waitlist-2', async () => {
-              const db = await getDb();
-              await db.collection('recoveryCases').updateOne(
-                { _id: new ObjectId(caseId) },
-                { $set: { calendarEventLink: bookResult3.htmlLink } }
-              );
-            });
-          }
-
-          return { status: 'success', message: 'Waitlist client 2 booked + calendar updated' };
+          return { status: 'success', message: 'Waitlist client 2 booked via call' };
         } else {
           await step.run('mark-case-failed-cascade', async () => {
             const db = await getDb();

@@ -16,11 +16,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Clinic not found' }, { status: 404 });
     }
 
-    const calendarEvent = await db.collection('calendarEvents')
-      .findOne({ clinicId, status: 'confirmed' }, { sort: { scheduledStart: -1 } });
+    const body = await req.json().catch(() => ({}));
+    const { calendarEventId, availableSlots } = body;
+
+    let calendarEvent;
+
+    if (calendarEventId) {
+      calendarEvent = await db.collection('calendarEvents').findOne({
+        _id: new ObjectId(calendarEventId),
+        clinicId,
+      });
+    } else {
+      calendarEvent = await db.collection('calendarEvents')
+        .findOne({ clinicId, status: 'confirmed' }, { sort: { scheduledStart: -1 } });
+    }
 
     if (!calendarEvent) {
-      return NextResponse.json({ error: 'No confirmed calendar events found. Connect Google Calendar first.' }, { status: 400 });
+      return NextResponse.json({ error: 'Calendar event not found' }, { status: 404 });
     }
 
     const eventId = calendarEvent._id.toString();
@@ -29,16 +41,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'A recovery case already exists for this event' }, { status: 409 });
     }
 
+    const slots = availableSlots || [{
+      start_time: calendarEvent.scheduledStart,
+      end_time: calendarEvent.scheduledEnd,
+      service_duration: calendarEvent.durationMin || 30,
+    }];
+
     const result = await db.collection('recoveryCases').insertOne({
       clinicId,
       calendarEventId: eventId,
-      originalClientId: 'test_client',
+      originalClientId: 'manual_' + Date.now(),
       originalClientName: calendarEvent.clientName,
       originalClientPhone: calendarEvent.clientPhone,
       originalAppointmentStart: calendarEvent.scheduledStart,
       originalServiceType: calendarEvent.serviceType,
       originalServiceDurationMin: calendarEvent.durationMin,
-      availableSlots: [],
+      availableSlots: slots,
       cascadeStatus: 'PENDING_CALL_1',
       maxCascadeDepth: 3,
       currentCallDepth: 0,

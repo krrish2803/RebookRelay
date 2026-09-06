@@ -20,21 +20,26 @@ export async function GET(req: NextRequest) {
       phone: p.phone,
       email: p.email,
       serviceType: p.serviceType,
-      preferredTimes: p.preferredTimes,
+      preferredTimes: p.preferredTimes || [],
+      preferredDays: p.preferredDays || [],
+      preferredTimeSlots: p.preferredTimeSlots || [],
+      contactMethod: p.contactMethod || 'phone',
       daysOnWaitlist: p.daysOnWaitlist,
       status: p.status,
       priorityScore: p.priorityScore,
-      noShowCount: p.noShowCount,
+      noShowCount: p.noShowCount || 0,
       lastBookedAt: p.lastBookedAt,
-      createdAt: p.createdAt,
     }));
 
-    const totalActive = people.filter((p: any) => p.status === 'ACTIVE').length;
-    const topPriority = people.length > 0 ? people[0]?.priorityScore ?? 0 : 0;
+    const totalActive = formatted.filter((p: any) => p.status === 'ACTIVE').length;
+    const topPriority = formatted.length > 0 ? formatted[0].priorityScore : 0;
 
     return NextResponse.json({
       success: true,
-      data: { people: formatted, stats: { totalActive, topPriority } }
+      data: {
+        people: formatted,
+        stats: { totalActive, topPriority }
+      }
     });
   } catch (error: any) {
     console.error('Failed to fetch waitlist:', error);
@@ -49,15 +54,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { name, phone, email, serviceType, preferredTimes } = await req.json();
+    const body = await req.json();
+    const { name, phone, email, serviceType, preferredTimes, preferredDays, preferredTimeSlots, contactMethod } = body;
+
     if (!name || !phone || !email || !serviceType) {
-      return NextResponse.json({ error: 'Name, phone, email, and serviceType are required' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     const db = await getDb();
-    const existing = await db.collection('waitlistPeople').findOne({ clinicId, email, status: 'ACTIVE' });
+
+    const existing = await db.collection('waitlistPeople').findOne({
+      clinicId,
+      email,
+      status: 'ACTIVE'
+    });
+
     if (existing) {
-      return NextResponse.json({ error: 'This person is already on the waitlist' }, { status: 409 });
+      return NextResponse.json({ error: 'This email is already on the waitlist' }, { status: 409 });
     }
 
     const result = await db.collection('waitlistPeople').insertOne({
@@ -67,6 +80,9 @@ export async function POST(req: NextRequest) {
       email,
       serviceType,
       preferredTimes: preferredTimes || [],
+      preferredDays: preferredDays || [],
+      preferredTimeSlots: preferredTimeSlots || [],
+      contactMethod: contactMethod || 'phone',
       daysOnWaitlist: 0,
       status: 'ACTIVE',
       priorityScore: 100,
@@ -76,7 +92,10 @@ export async function POST(req: NextRequest) {
       updatedAt: new Date(),
     });
 
-    return NextResponse.json({ success: true, data: { id: result.insertedId.toString() } });
+    return NextResponse.json({
+      success: true,
+      data: { id: result.insertedId.toString() }
+    });
   } catch (error: any) {
     console.error('Failed to add to waitlist:', error);
     return NextResponse.json({ error: 'Failed to add to waitlist' }, { status: 500 });
