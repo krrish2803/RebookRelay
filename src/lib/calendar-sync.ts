@@ -26,6 +26,43 @@ async function getCalendarClient(clinicId: string) {
   return google.calendar({ version: 'v3', auth: oauth2Client });
 }
 
+export async function checkSlotAvailability(
+  clinicId: string,
+  startTime: Date,
+  endTime: Date
+): Promise<{ available: boolean; reason?: string }> {
+  const calendar = await getCalendarClient(clinicId);
+  if (!calendar) {
+    return { available: true, reason: 'Calendar not connected — assuming available' };
+  }
+
+  try {
+    const response = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: startTime.toISOString(),
+      timeMax: endTime.toISOString(),
+      singleEvents: true,
+      timeZone: 'America/New_York',
+    });
+
+    const events = response.data.items || [];
+    const conflicting = events.filter(e => e.status !== 'cancelled');
+
+    if (conflicting.length > 0) {
+      const conflictName = conflicting[0].summary || 'Another event';
+      return {
+        available: false,
+        reason: `Slot already taken by "${conflictName}"`,
+      };
+    }
+
+    return { available: true };
+  } catch (error: any) {
+    console.error('[AVAILABILITY] Check failed:', error.message);
+    return { available: true, reason: 'Calendar check failed — proceeding anyway' };
+  }
+}
+
 export async function bookCalendarEvent(params: {
   clinicId: string;
   clientName: string;

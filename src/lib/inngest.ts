@@ -1,7 +1,7 @@
 import { Inngest } from 'inngest';
 import { getDb } from './mongodb';
 import { initiateRecoveryCall, buildAgentScript, sendVoiceConfirmation } from './calle';
-import { syncGoogleCalendarEvents, bookCalendarEvent } from './calendar-sync';
+import { syncGoogleCalendarEvents, bookCalendarEvent, checkSlotAvailability } from './calendar-sync';
 import { sendSms, buildRecoverySms, logSmsAttempt } from './sms';
 import { ObjectId } from 'mongodb';
 import { WithId, Document } from 'mongodb';
@@ -339,6 +339,28 @@ export const cascadeWorkflow = inngest.createFunction(
         return { status: 'success', message: 'Waitlist client 1 booked via SMS reply + voice confirmation sent' };
       }
 
+      // Check slot availability before calling
+      const slotCheck2 = await step.run('check-slot-availability-2', async () => {
+        const slot = recoveryCase.availableSlots?.[0];
+        if (!slot) return { available: true };
+        return await checkSlotAvailability(
+          recoveryCase.clinicId,
+          new Date(slot.start_time),
+          new Date(slot.end_time)
+        );
+      });
+
+      if (!slotCheck2.available) {
+        await step.run('mark-case-slot-taken-2', async () => {
+          const db = await getDb();
+          await db.collection('recoveryCases').updateOne(
+            { _id: new ObjectId(caseId) },
+            { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'NOT_BOOKED', notes: `Slot no longer available: ${slotCheck2.reason}`, updatedAt: new Date() } }
+          );
+        });
+        return { status: 'ended', message: `Slot no longer available: ${slotCheck2.reason}` };
+      }
+
       // Call waitlist person #1
       const call2Result = await step.run('initiate-call-2-waitlist', async () => {
         const script = buildAgentScript(
@@ -508,6 +530,28 @@ export const cascadeWorkflow = inngest.createFunction(
           });
 
           return { status: 'success', message: 'Waitlist client 2 booked via SMS reply + voice confirmation sent' };
+        }
+
+        // Check slot availability before calling
+        const slotCheck3 = await step.run('check-slot-availability-3', async () => {
+          const slot = recoveryCase.availableSlots?.[0];
+          if (!slot) return { available: true };
+          return await checkSlotAvailability(
+            recoveryCase.clinicId,
+            new Date(slot.start_time),
+            new Date(slot.end_time)
+          );
+        });
+
+        if (!slotCheck3.available) {
+          await step.run('mark-case-slot-taken-3', async () => {
+            const db = await getDb();
+            await db.collection('recoveryCases').updateOne(
+              { _id: new ObjectId(caseId) },
+              { $set: { cascadeStatus: 'COMPLETED', finalOutcome: 'NOT_BOOKED', notes: `Slot no longer available: ${slotCheck3.reason}`, updatedAt: new Date() } }
+            );
+          });
+          return { status: 'ended', message: `Slot no longer available: ${slotCheck3.reason}` };
         }
 
         // Call waitlist person #2
