@@ -1,7 +1,13 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
+dotenv.config();
 
-const MONGODB_URI = process.env.DATABASE_URL || 'mongodb+srv://USER:PASS@cluster.mongodb.net/rebookrelay';
+const MONGODB_URI = process.env.DATABASE_URL;
+if (!MONGODB_URI) {
+  console.error('DATABASE_URL environment variable is required');
+  process.exit(1);
+}
 
 async function seed() {
   const client = new MongoClient(MONGODB_URI);
@@ -20,29 +26,41 @@ async function seed() {
     console.log('Cleared all collections');
 
     // ========== 1. CLINIC ==========
-    const clinicResult = await db.collection('clinics').insertOne({
-      name: 'Serenity Dental Clinic',
-      businessType: 'dental',
-      timezone: 'America/New_York',
-      phone: '+15550123456',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    const clinicId = clinicResult.insertedId.toString();
-    console.log(`Clinic: ${clinicId}`);
+    // Find existing clinic from staff account, or create new one
+    const existingStaff = await db.collection('staff').findOne({ email: 'sarah@serenitydental.com' });
+    let clinicId: string;
+    if (existingStaff) {
+      clinicId = existingStaff.clinicId;
+      console.log(`Using existing clinic: ${clinicId}`);
+    } else {
+      const clinicResult = await db.collection('clinics').insertOne({
+        name: 'Serenity Dental Clinic',
+        businessType: 'dental',
+        timezone: 'America/New_York',
+        phone: '+15550123456',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      clinicId = clinicResult.insertedId.toString();
+      console.log(`Created new clinic: ${clinicId}`);
+    }
 
     // ========== 2. STAFF ==========
-    const passwordHash = await bcrypt.hash('test123', 10);
-    await db.collection('staff').insertOne({
-      clinicId,
-      name: 'Dr. Sarah Mitchell',
-      email: 'sarah@serenitydental.com',
-      passwordHash,
-      role: 'admin',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    console.log('Staff: sarah@serenitydental.com / test123');
+    if (!existingStaff) {
+      const passwordHash = await bcrypt.hash('test123', 10);
+      await db.collection('staff').insertOne({
+        clinicId,
+        name: 'Dr. Sarah Mitchell',
+        email: 'sarah@serenitydental.com',
+        passwordHash,
+        role: 'admin',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      console.log('Staff: sarah@serenitydental.com / test123');
+    } else {
+      console.log('Staff already exists: sarah@serenitydental.com');
+    }
 
     // ========== 3. WAITLIST (8 people with preferences) ==========
     const now = new Date();
